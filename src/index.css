@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #1e293b;
+  border-radius: 3px;
+}
+
+body {
+  margin: 0;
+  background: #0a0e17;
+  color: #e2e8f0;
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply bg-noc-card border border-noc-border rounded-xl;
+  }
+  .stat-card {
+    @apply bg-noc-card border border-noc-border rounded-xl p-5 transition-all hover:border-noc-accent/40 hover:bg-noc-hover;
+  }
+  .btn-primary {
+    @apply bg-noc-accent hover:bg-blue-500 text-white font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  .btn-secondary {
+    @apply bg-noc-panel border border-noc-border text-slate-300 hover:text-slate-100 hover:bg-noc-hover font-medium px-4 py-2 rounded-lg transition-colors;
+  }
+  .btn-ghost {
+    @apply text-slate-400 hover:text-white hover:bg-noc-hover px-3 py-2 rounded-lg transition-colors;
+  }
+  .input-field {
+    @apply bg-noc-panel border border-noc-border rounded-lg px-4 py-2.5 text-sm text-slate-200 placeholder-slate-500
+           focus:outline-none focus:border-noc-accent focus:ring-1 focus:ring-noc-accent transition-colors w-full;
+  }
+  .table-row-hover {
+    @apply transition-colors hover:bg-noc-hover cursor-pointer;
+  }
+  .status-dot {
+    @apply inline-block w-2.5 h-2.5 rounded-full;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(21, 28, 46, 0.7);
+    backdrop-filter: blur(12px);
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}

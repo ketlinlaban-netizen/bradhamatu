@@ -1,0 +1,32 @@
+[Unit]
+Description=Cloudflare Tunnel (cloudflared) — Bradha Matu Console
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run
+Restart=on-failure
+RestartSec=5s
+
+# Run as a dedicated unprivileged user (create with:
+#   sudo useradd -r -s /usr/sbin/nologin cloudflared
+User=cloudflared
+Group=cloudflared
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/log/cloudflared /etc/cloudflared
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Environment
+Environment=TUNNEL_METRICS=127.0.0.1:36500
+
+[Install]
+WantedBy=multi-user.target
