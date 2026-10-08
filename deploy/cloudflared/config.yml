@@ -1,0 +1,29 @@
+# Community WiFi Bradha Matu — Cloudflare Tunnel Config
+#
+# This file is used by cloudflared once the tunnel has been created
+# and credentials downloaded. The tunnel ID and credentials file path
+# are populated by `cloudflared tunnel create` — do NOT hardcode them.
+#
+# See: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/cloudflared-parameters/
+
+tunnel: <TUNNEL_ID_FROM_CLOUDFLARED_TUNNEL_CREATE>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+# ── Logging ────────────────────────────────────────────────────────
+loglevel: info
+transport-loglevel: warn
+metrics: 127.0.0.1:36500
+
+# ── Ingress rules ──────────────────────────────────────────────────
+# Route the public hostname to the local Laravel application.
+# The local app must be served by nginx or Apache on 127.0.0.1:8080.
+#
+# Replace YOUR_DOMAIN with your actual Cloudflare-managed domain.
+
+ingress:
+  # Route the console hostname to the local Laravel app
+  - hostname: console.YOUR_DOMAIN
+    service: http://127.0.0.1:8080
+
+  # Catch-all: reject anything that doesn't match (safety net)
+  - service: http_status:404
