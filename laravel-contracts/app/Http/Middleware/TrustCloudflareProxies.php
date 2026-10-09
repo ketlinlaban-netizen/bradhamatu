@@ -4,12 +4,13 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\IpUtils;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
  * TrustCloudflareProxies
  *
- * Configures Laravel to trust the Cloudflare Tunnel IP as a proxy
+ * Configures Laravel to trust Cloudflare and the local tunnel proxy
  * so that:
  *   - request.isSecure() returns true (HTTPS from Cloudflare)
  *   - request.ip() returns the real client IP from CF-Connecting-IP
@@ -32,7 +33,7 @@ class TrustCloudflareProxies
 {
     /**
      * Cloudflare IPv4 and IPv6 ranges.
-     * These are the only proxies we trust.
+     * Loopback tunnel proxies are trusted separately in handle().
      */
     private const CLOUDFLARE_IPS = [
         // IPv4
@@ -49,6 +50,13 @@ class TrustCloudflareProxies
 
     public function handle(Request $request, Closure $next): Response
     {
+        $remoteAddress = (string) $request->server->get('REMOTE_ADDR', '');
+        $trustedProxies = array_merge(['127.0.0.0/8', '::1'], self::CLOUDFLARE_IPS);
+
+        if (!IpUtils::checkIp($remoteAddress, $trustedProxies)) {
+            return $next($request);
+        }
+
         // Trust the CF-Connecting-IP header for real client IP
         $cfIp = $request->header('CF-Connecting-IP');
         if ($cfIp && filter_var($cfIp, FILTER_VALIDATE_IP)) {

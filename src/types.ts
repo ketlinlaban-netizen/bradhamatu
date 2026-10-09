@@ -163,6 +163,7 @@ export interface MikroTikConfig {
   host: string;
   apiPort: number;
   useTls: boolean;
+  verifyCert: boolean;
   username: string;
   passwordMasked: string | null;
   location: string | null;

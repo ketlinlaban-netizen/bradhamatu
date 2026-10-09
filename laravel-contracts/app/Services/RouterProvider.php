@@ -5,14 +5,7 @@ namespace App\Services;
 /**
  * RouterProvider Interface
  *
- * The contract that both MockRouterProvider and MikroTikRouterProvider
- * must implement. RouterService depends on this interface — never on
- * a concrete implementation.
- *
- * To migrate from mock to production:
- * 1. Create MikroTikRouterProvider implementing this interface
- * 2. Bind it in a ServiceProvider: $this->app->bind(RouterProvider::class, MikroTikRouterProvider::class)
- * 3. No controllers, frontend, or routes change.
+ * The contract implemented by MikroTikRouterProvider.
  */
 
 interface RouterProvider

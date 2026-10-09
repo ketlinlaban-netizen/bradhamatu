@@ -13,6 +13,8 @@ The console talks to MikroTik routers using two protocols:
 
 Set `api_protocol` to `auto` (default) and the system tries binary first, then falls back to REST automatically.
 
+The binary client sends `=name=` and `=password=` with the initial `/login` sentence, as documented for RouterOS 7. Use API-SSL or a trusted management network because credentials on plain TCP port 8728 are not encrypted. The configuration form defaults to API-SSL on port 8729 and verifies the TLS certificate; for a self-signed certificate, either install its CA certificate in the Laravel host trust store or explicitly disable certificate verification for that router.
+
 ---
 
 ## Step 1: Enable the API Service on the Router
@@ -88,8 +90,8 @@ MIKROTIK_ROUTER_01_IP=192.168.88.1
 MIKROTIK_ROUTER_01_USER=monitoring
 MIKROTIK_ROUTER_01_PASS=your-long-random-password
 MIKROTIK_ROUTER_01_PROTOCOL=auto
-MIKROTIK_ROUTER_01_API_PORT=8728
-MIKROTIK_ROUTER_01_API_TLS=false
+MIKROTIK_ROUTER_01_API_PORT=8729
+MIKROTIK_ROUTER_01_API_TLS=true
 
 # ── Router 2 (example) ──
 MIKROTIK_ROUTER_02_IP=192.168.89.1
@@ -112,10 +114,10 @@ Then add the router to `config/mikrotik.php`:
     'location' => 'Malindi',
     'site' => 'Coast',
     'api_protocol' => env('MIKROTIK_ROUTER_02_PROTOCOL', 'auto'),
-    'api_port' => (int) env('MIKROTIK_ROUTER_02_API_PORT', 8728),
+    'api_port' => (int) env('MIKROTIK_ROUTER_02_API_PORT', 8729),
     'api_use_tls' => env('MIKROTIK_ROUTER_02_API_TLS', false),
     'use_ssl' => true,
-    'verify_cert' => false,
+    'verify_cert' => true,
     'created_at' => '2024-01-15T00:00:00Z',
 ],
 ```
@@ -153,20 +155,16 @@ Allow the frontend origin to call the Laravel API. In `config/cors.php`:
 
 ## Step 6: Create Admin Users in Laravel
 
-Create your first admin user using tinker:
+Set credentials in `.env` and run the idempotent seeder:
 
 ```bash
-php artisan tinker
+SUPERADMIN_NAME="Network Administrator" \
+SUPERADMIN_EMAIL=admin@bradhamatu.com \
+SUPERADMIN_PASSWORD="your-long-random-password" \
+php artisan db:seed --class=SuperAdminSeeder
 ```
 
-```php
-$user = new App\Models\User();
-$user->name = 'Network Administrator';
-$user->email = 'admin@communitywifi';
-$user->password = bcrypt('your-secure-password');
-$user->role = 'super_admin';
-$user->save();
-```
+The seeder creates or updates that account with the `super_admin` role. Never commit the real password.
 
 ---
 

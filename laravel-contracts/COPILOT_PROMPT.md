@@ -4,18 +4,12 @@ Copy and paste the prompt below into GitHub Copilot Chat or your AI assistant:
 
 ---
 
-I have a Laravel backend project with contracts (controllers, models, services, migrations, routes, config) in a folder called `laravel-contracts/`. I need you to set up a fresh Laravel 11 project and integrate these files. Do the following step by step:
+I have a Laravel backend project with contracts (controllers, models, services, migrations, routes, config) in a folder called `laravel-contracts/`. I need you to set up a fresh Laravel 13 project and integrate these files. Do the following step by step:
 
-## Step 1 — Create a new Laravel 11 project
+## Step 1 — Create a new Laravel 13 project
 
 ```bash
-composer create-project laravel/lavelength bradha-matu-api
-cd bradha-matu-api
-```
-
-If that fails, use:
-```bash
-composer create-project laravel/laravel bradha-matu-api
+composer create-project laravel/laravel bradha-matu-api "13.*"
 cd bradha-matu-api
 ```
 
@@ -41,11 +35,11 @@ laravel-contracts/routes/api.php              →  routes/api.php
 laravel-contracts/database/migrations/*.php   →  database/migrations/
 ```
 
-Overwrite any existing files (the Laravel defaults for `routes/api.php` and models like `Router.php` should be replaced with our versions).
+Overwrite existing contract files, but preserve Laravel's base `app/Http/Controllers/Controller.php` and `app/Models/User.php`. Add Sanctum's `HasApiTokens` trait to `User`, include `role` in its fillable attributes, and apply the user-role migration included in the contracts.
 
 ## Step 4 — Register the RouterServiceProvider
 
-Add this line to the `providers` array in `config/app.php`:
+Add this line to `bootstrap/providers.php`:
 
 ```php
 App\Providers\RouterServiceProvider::class,
@@ -53,7 +47,7 @@ App\Providers\RouterServiceProvider::class,
 
 ## Step 5 — Register middleware
 
-In `bootstrap/app.php` (Laravel 11 format), add the custom middleware to the middleware array or register them in `app/Http/Kernel.php` (Laravel 10 format). The middleware files are:
+In `bootstrap/app.php`, register both custom middleware globally. `TrustCloudflareProxies` must only trust forwarded headers when the connecting address is a Cloudflare proxy or the local tunnel proxy. The middleware files are:
 
 - `App\Http\Middleware\SecurityHeaders` — adds security headers to all responses
 - `App\Http\Middleware\TrustCloudflareProxies` — trusts Cloudflare proxy IPs
@@ -105,6 +99,7 @@ This will create the following tables:
 - `incidents` — network incidents
 - `users` — admin users (Laravel default)
 - `personal_access_tokens` — Sanctum token storage
+- `users.role` — admin role returned by the authentication API
 
 ## Step 9 — Run Sanctum migrations (if not already run)
 
@@ -179,21 +174,13 @@ MIKROTIK_ROUTER_01_API_TLS=false
 
 ## Step 12 — Enable API routes
 
-Ensure `routes/api.php` is loaded. In Laravel 11, check `bootstrap/app.php`:
+Ensure `routes/api.php` is loaded in `bootstrap/app.php`:
 
 ```php
 ->withRouting(
     api: __DIR__.'/../routes/api.php',
     // ...
 )
-```
-
-In Laravel 10, ensure `app/Providers/RouteServiceProvider.php` has:
-
-```php
-Route::middleware('api')
-    ->prefix('api')
-    ->group(base_path('routes/api.php'));
 ```
 
 ## Step 13 — Serve the application

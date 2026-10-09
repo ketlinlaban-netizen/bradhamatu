@@ -1,6 +1,6 @@
 # Community WiFi Bradha Matu — Laravel Backend with MikroTik Integration
 
-A complete Laravel 11 backend that integrates directly with MikroTik RouterOS using both the native binary API protocol and the REST API.
+A complete Laravel 13 backend that integrates directly with MikroTik RouterOS using both the native binary API protocol and the REST API.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ Set `api_protocol` per router or globally:
 ### 1. Install Laravel
 
 ```bash
-composer create-project laravel/laravel bradha-matu-api
+composer create-project laravel/laravel bradha-matu-api "13.*"
 cd bradha-matu-api
 ```
 
@@ -73,11 +73,11 @@ routes/api.php           ← API routes
 
 ### 3. Register the ServiceProvider
 
-Add to `config/app.php` 'providers' array:
-
 ```php
 App\Providers\RouterServiceProvider::class,
 ```
+
+Add the provider to `bootstrap/providers.php`. Register `routes/api.php` and the global security middleware in `bootstrap/app.php`. Add Sanctum's `HasApiTokens` trait and the `role` fillable field to Laravel's `User` model.
 
 ### 4. Configure routers
 

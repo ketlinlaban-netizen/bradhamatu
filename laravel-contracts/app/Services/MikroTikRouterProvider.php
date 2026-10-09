@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Router;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -41,7 +42,24 @@ class MikroTikRouterProvider implements RouterProvider
 
     public function __construct()
     {
-        $this->routersConfig = config('mikrotik.routers', []);
+        $this->routersConfig = Router::query()
+            ->get()
+            ->map(fn (Router $router) => [
+                'id' => $router->id,
+                'name' => $router->name,
+                'ip_address' => $router->ip_address,
+                'api_username' => $router->api_username,
+                'api_password' => $router->api_password,
+                'api_port' => $router->api_port ?: ($router->api_use_tls ? self::API_PORT_TLS : self::API_PORT_PLAIN),
+                'api_use_tls' => $router->api_use_tls,
+                'location' => $router->location,
+                'site' => $router->site,
+                'use_ssl' => $router->use_ssl,
+                'verify_cert' => $router->verify_cert,
+                'api_protocol' => 'auto',
+                'created_at' => $router->created_at?->toIso8601String(),
+            ])
+            ->all();
         $this->timeout = (int)config('mikrotik.timeout', self::DEFAULT_TIMEOUT);
     }
 
@@ -673,7 +691,7 @@ class MikroTikRouterProvider implements RouterProvider
         foreach ($routers as $router) {
             if ($router['status'] === 'offline') {
                 $incidents[] = [
-                    'id' => "inc-{$id++}",
+                    'id' => 'inc-' . $id++,
                     'routerId' => $router['id'],
                     'routerName' => $router['name'],
                     'type' => 'offline',
@@ -684,7 +702,7 @@ class MikroTikRouterProvider implements RouterProvider
                 ];
             } elseif ($router['status'] === 'degraded') {
                 $incidents[] = [
-                    'id' => "inc-{$id++}",
+                    'id' => 'inc-' . $id++,
                     'routerId' => $router['id'],
                     'routerName' => $router['name'],
                     'type' => 'degraded',

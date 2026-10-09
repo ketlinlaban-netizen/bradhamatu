@@ -27,6 +27,7 @@ type AddForm = {
   host: string;
   apiPort: string;
   useTls: boolean;
+  verifyCert: boolean;
   username: string;
   password: string;
   location: string;
@@ -36,8 +37,9 @@ type AddForm = {
 const EMPTY_FORM: AddForm = {
   name: "",
   host: "",
-  apiPort: "8728",
-  useTls: false,
+  apiPort: "8729",
+  useTls: true,
+  verifyCert: true,
   username: "monitoring",
   password: "",
   location: "",
@@ -82,6 +84,7 @@ export function MikroTikConfigPage() {
         host: form.host,
         apiPort: parseInt(form.apiPort, 10) || 8728,
         useTls: form.useTls,
+        verifyCert: form.verifyCert,
         username: form.username,
         password: form.password,
         location: form.location || null,
@@ -286,17 +289,49 @@ function AddConfigForm({
           />
         </FormField>
 
-        <FormField label="Use TLS (API-SSL, port 8729)">
+        <FormField label="Use TLS (API-SSL)">
           <label className="flex items-center gap-2 mt-2">
             <input
               type="checkbox"
               checked={form.useTls}
-              onChange={(e) => setForm({ ...form, useTls: e.target.checked })}
+              onChange={(e) => {
+                const useTls = e.target.checked;
+                const defaultPort = useTls ? "8728" : "8729";
+                const tlsPort = useTls ? "8729" : "8728";
+                setForm({
+                  ...form,
+                  useTls,
+                  apiPort: form.apiPort === defaultPort ? tlsPort : form.apiPort,
+                });
+              }}
               className="w-4 h-4 rounded border-noc-border bg-noc-panel"
             />
-            <span className="text-sm text-slate-300">Enable TLS encryption for binary API</span>
+            <span className="text-sm text-slate-300">Enable TLS encryption for binary API (default port 8729)</span>
           </label>
         </FormField>
+
+        <FormField label="Verify TLS/HTTPS certificate">
+          <label className="flex items-center gap-2 mt-2">
+            <input
+              type="checkbox"
+              checked={form.verifyCert}
+              onChange={(e) => setForm({ ...form, verifyCert: e.target.checked })}
+              className="w-4 h-4 rounded border-noc-border bg-noc-panel"
+            />
+            <span className="text-sm text-slate-300">Verify the router certificate (recommended)</span>
+          </label>
+          {!form.verifyCert && (
+            <p className="mt-1 text-xs text-amber-400">
+              Certificate verification is disabled for API-SSL and the REST HTTPS fallback. Use only on a trusted network or with a self-signed certificate.
+            </p>
+          )}
+        </FormField>
+
+        {!form.useTls && (
+          <p className="md:col-span-2 text-xs text-amber-400">
+            The binary API login sends credentials in plaintext when TLS is disabled. Prefer API-SSL on port 8729.
+          </p>
+        )}
 
         <FormField label="Username" required>
           <input

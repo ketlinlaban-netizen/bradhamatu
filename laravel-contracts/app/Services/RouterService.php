@@ -12,8 +12,7 @@ use Illuminate\Support\Facades\App;
  *
  * Architecture:
  *   Controller → RouterService → ReadOnlyGuard → Provider
- *                                               ├─ MockRouterProvider (demo)
- *                                               └─ MikroTikRouterProvider (production)
+ *                                               └─ MikroTikRouterProvider (live device data)
  *
  * To swap providers, change the binding in a ServiceProvider.
  * Nothing else changes.

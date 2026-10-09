@@ -43,45 +43,8 @@
 
 return [
 
-    'routers' => [
-        [
-            'id' => 'router-01',
-            'name' => 'Mombasa-01-A',
-            'ip_address' => env('MIKROTIK_ROUTER_01_IP', '192.168.88.1'),
-            'api_username' => env('MIKROTIK_ROUTER_01_USER', 'monitoring'),
-            'api_password' => env('MIKROTIK_ROUTER_01_PASS', ''),
-            'location' => 'Mombasa',
-            'site' => 'Coast',
-
-            // API protocol: 'auto' (binary first, REST fallback), 'binary', or 'rest'
-            'api_protocol' => env('MIKROTIK_ROUTER_01_PROTOCOL', 'auto'),
-
-            // Binary API settings
-            'api_port' => (int) env('MIKROTIK_ROUTER_01_API_PORT', 8728),
-            'api_use_tls' => env('MIKROTIK_ROUTER_01_API_TLS', false),
-
-            // REST API settings (used when api_protocol is 'rest' or as fallback)
-            'use_ssl' => env('MIKROTIK_ROUTER_01_SSL', true),
-            'verify_cert' => env('MIKROTIK_ROUTER_01_VERIFY', false),
-
-            'created_at' => '2024-01-15T00:00:00Z',
-        ],
-        // Add more routers here. Example:
-        // [
-        //     'id' => 'router-02',
-        //     'name' => 'Malindi-01-A',
-        //     'ip_address' => env('MIKROTIK_ROUTER_02_IP', '192.168.89.1'),
-        //     'api_username' => env('MIKROTIK_ROUTER_02_USER', 'monitoring'),
-        //     'api_password' => env('MIKROTIK_ROUTER_02_PASS', ''),
-        //     'location' => 'Malindi',
-        //     'site' => 'Coast',
-        //     'api_protocol' => 'auto',
-        //     'api_port' => 8728,
-        //     'api_use_tls' => false,
-        //     'use_ssl' => true,
-        //     'verify_cert' => false,
-        // ],
-    ],
+    // Router connection details are stored in the routers table via the UI.
+    'routers' => [],
 
     /**
      * Default API protocol for all routers.
@@ -90,11 +53,9 @@ return [
     'api_protocol' => env('MIKROTIK_API_PROTOCOL', 'auto'),
 
     /**
-     * Which provider class to use.
-     * - 'mock': Uses MockRouterProvider (fake data, no real routers needed)
-     * - 'mikrotik': Uses MikroTikRouterProvider (real RouterOS API)
+     * Use the live MikroTik provider; routers must be configured in Laravel.
      */
-    'provider' => env('ROUTER_PROVIDER', 'mock'),
+    'provider' => env('ROUTER_PROVIDER', 'mikrotik'),
 
     /**
      * API timeout in seconds (applies to both binary and REST).

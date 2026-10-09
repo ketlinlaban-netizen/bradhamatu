@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Community WiFi Bradha Matu",
+  "short_name": "Bradha Matu",
+  "description": "Network Operations Console",
+  "start_url": "/login",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
