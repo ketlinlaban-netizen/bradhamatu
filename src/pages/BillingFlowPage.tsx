@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Activity, CheckCircle2, CreditCard, Database, Router, Server, Users } from "lucide-react";
+import { getPendingAdminPayments, getReconciliationQueue, getRevenueReport, type RevenueReport } from "../services/adminBillingApi";
 
 interface FlowStep {
   title: string;
@@ -26,6 +28,22 @@ function Pipe({ active }: { active: boolean }) {
 }
 
 export function BillingFlowPage() {
+  const [report, setReport] = useState<RevenueReport | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [reconciliationCount, setReconciliationCount] = useState(0);
+
+  useEffect(() => {
+    Promise.all([getRevenueReport(), getPendingAdminPayments(), getReconciliationQueue()])
+      .then(([nextReport, pending, reconciliation]) => {
+        setReport(nextReport);
+        setPendingCount(pending.total ?? pending.data.length);
+        setReconciliationCount(reconciliation.payments.length);
+      })
+      .catch(() => {
+        setReport(null);
+      });
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -74,9 +92,9 @@ export function BillingFlowPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="stat-card"><p className="text-xs text-slate-500">Verified revenue today</p><p className="mt-2 text-2xl font-bold text-slate-100">KSh 0</p><p className="mt-1 text-xs text-emerald-400">Only successful payments counted</p></div>
-        <div className="stat-card"><p className="text-xs text-slate-500">Activation queue</p><p className="mt-2 text-2xl font-bold text-slate-100">0</p><p className="mt-1 text-xs text-amber-400">Retry-safe, no duplicate charges</p></div>
-        <div className="stat-card"><p className="text-xs text-slate-500">Customer renewals due</p><p className="mt-2 text-2xl font-bold text-slate-100">0</p><p className="mt-1 text-xs text-cyan-400">Server-authoritative expiry</p></div>
+        <div className="stat-card"><p className="text-xs text-slate-500">Verified revenue today</p><p className="mt-2 text-2xl font-bold text-slate-100">KSh {report?.total_revenue_ksh.toLocaleString() ?? "—"}</p><p className="mt-1 text-xs text-emerald-400">Only successful payments counted</p></div>
+        <div className="stat-card"><p className="text-xs text-slate-500">Activation queue</p><p className="mt-2 text-2xl font-bold text-slate-100">{pendingCount}</p><p className="mt-1 text-xs text-amber-400">{reconciliationCount} need reconciliation</p></div>
+        <div className="stat-card"><p className="text-xs text-slate-500">Active subscribers</p><p className="mt-2 text-2xl font-bold text-slate-100">{report?.active_subscribers ?? "—"}</p><p className="mt-1 text-xs text-cyan-400">Server-authoritative expiry</p></div>
       </div>
 
       <div className="card p-5">

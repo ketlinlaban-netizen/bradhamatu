@@ -1,115 +1,90 @@
-# ISP Billing Platform — API Matrix
+# Community WiFi Bradha Matu — Complete Laravel API Matrix
 
-**Date:** 2026-10-10  
-**Project:** Community WiFi Bradha Matu
+**Source of truth:** `bradha-matu-api/routes/api.php` and the frontend service calls.
 
----
+## Request conventions
 
-## Existing API Routes (Preserved)
+- Frontend base path: `VITE_API_URL` when supplied, otherwise `/api`.
+- JSON requests send `Accept: application/json` and `Content-Type: application/json`.
+- Admin bearer tokens are stored separately from customer tokens but sent through the shared Laravel API client.
+- Admin routes require `auth:sanctum` plus `admin.user`.
+- Customer routes require `auth:sanctum` plus `customer.user`.
+- Router mutations are intentionally absent. MikroTik operations exposed to the console are read-only monitoring or protected configuration storage.
 
-| Method | Endpoint | Auth | Purpose |
-|---|---|---|---|
-| GET | `/api/health` | None | Health check |
-| POST | `/api/auth/login` | None (throttled 5/min) | Admin login |
-| POST | `/api/auth/logout` | Sanctum (admin) | Admin logout |
-| GET | `/api/auth/me` | Sanctum (admin) | Admin profile |
-| GET | `/api/dashboard` | Sanctum (admin) | Dashboard summary |
-| GET | `/api/routers` | Sanctum (admin) | Router inventory |
-| GET | `/api/routers/search` | Sanctum (admin) | Search routers |
-| GET | `/api/routers/{id}` | Sanctum (admin) | Router detail |
-| GET | `/api/routers/{id}/status` | Sanctum (admin) | Router status |
-| GET | `/api/routers/{id}/interfaces` | Sanctum (admin) | Router interfaces |
-| GET | `/api/routers/{id}/clients` | Sanctum (admin) | Router clients |
-| GET | `/api/routers/{id}/traffic` | Sanctum (admin) | Router traffic |
-| GET | `/api/routers/{id}/wireless` | Sanctum (admin) | Wireless info |
-| GET | `/api/routers/{id}/metrics` | Sanctum (admin) | Router metrics |
-| GET | `/api/routers/{id}/connect` | Sanctum (admin) | Test connection |
-| GET | `/api/clients` | Sanctum (admin) | All clients |
-| GET | `/api/traffic` | Sanctum (admin) | Aggregate traffic |
-| GET | `/api/network-health` | Sanctum (admin) | Network health |
-| GET | `/api/incidents` | Sanctum (admin) | Incidents |
-| GET | `/api/mikrotik-configs` | Sanctum (admin) | List router configs |
-| POST | `/api/mikrotik-configs` | Sanctum (admin) | Add router config |
-| DELETE | `/api/mikrotik-configs/{id}` | Sanctum (admin) | Delete router config |
-| POST | `/api/mikrotik-configs/{id}/connect` | Sanctum (admin) | Test router connection |
+## Public and authentication routes
 
----
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| GET | `/api/health` | Deployment/health probes | None | `HealthController@index` | Service health |
+| POST | `/api/auth/login` | `AuthContext.login` | None, throttled | `AuthController@login` | Admin token and profile |
+| POST | `/api/auth/logout` | `AuthContext.logout` | Admin Sanctum | `AuthController@logout` | Revoked token |
+| GET | `/api/auth/me` | `AuthContext` session restore | Admin Sanctum | `AuthController@me` | Admin profile |
+| GET | `/api/public/packages` | `getPublicPackages` | None | `PackageController@publicIndex` | Public packages |
+| POST | `/api/mpesa/callback` | Daraja provider | Provider callback validation | `PaymentCallbackController@mpesaCallback` | Payment state update |
 
-## New API Routes — Customer Portal
+## Admin monitoring and configuration
 
-| Method | Endpoint | Auth | Purpose |
-|---|---|---|---|
-| POST | `/api/customer/register` | None | Customer registration |
-| POST | `/api/customer/login` | None (throttled 5/min) | Customer login |
-| POST | `/api/customer/logout` | Sanctum (customer) | Customer logout |
-| GET | `/api/customer/me` | Sanctum (customer) | Customer profile |
-| POST | `/api/customer/forgot-password` | None | Password reset request |
-| POST | `/api/customer/reset-password` | None | Password reset submission |
-| GET | `/api/customer/packages` | Sanctum (customer) | Available packages |
-| GET | `/api/customer/purchases` | Sanctum (customer) | Purchase history |
-| GET | `/api/customer/purchases/{id}` | Sanctum (customer) | Purchase detail + receipt |
-| GET | `/api/customer/payments` | Sanctum (customer) | Payment history |
-| GET | `/api/customer/payments/{id}` | Sanctum (customer) | Payment detail |
-| POST | `/api/customer/purchase` | Sanctum (customer) | Initiate purchase + STK push |
-| GET | `/api/customer/payments/{id}/status` | Sanctum (customer) | Poll payment status |
-| GET | `/api/customer/service-status` | Sanctum (customer) | Current active package + expiry |
-| POST | `/api/customer/support-tickets` | Sanctum (customer) | Submit support ticket |
-| GET | `/api/customer/support-tickets` | Sanctum (customer) | List own tickets |
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| GET | `/api/dashboard` | `LaravelApiProvider.getDashboardSummary` | Admin | `DashboardController@index` | Network summary |
+| GET | `/api/routers` | `getRouters` | Admin | `RouterController@index` | Router inventory |
+| GET | `/api/routers/search?q=` | `searchRouters` | Admin | `RouterController@search` | Matching routers |
+| GET | `/api/routers/{router}` | `getRouter` | Admin | `RouterController@show` | Router detail |
+| GET | `/api/routers/{router}/status` | `getStatus` | Admin | `RouterStatusController@show` | Status |
+| GET | `/api/routers/{router}/interfaces` | `getInterfaces` | Admin | `RouterInterfaceController@index` | Interfaces |
+| GET | `/api/routers/{router}/clients` | `getClients` | Admin | `RouterClientController@index` | Connected clients |
+| GET | `/api/routers/{router}/traffic` | `getTraffic` | Admin | `RouterTrafficController@show` | Traffic |
+| GET | `/api/routers/{router}/wireless` | `getWireless` | Admin | `RouterWirelessController@show` | Wireless data |
+| GET | `/api/routers/{router}/metrics` | `getMetrics` | Admin | `RouterMetricController@index` | Metrics |
+| GET | `/api/routers/{router}/connect` | `connect` | Admin | `RouterConnectionController@connect` | Read-only connection test |
+| GET | `/api/clients` | `getClients` dashboard calls | Admin | `ClientController@index` | Global clients |
+| GET | `/api/traffic` | Traffic page calls | Admin | `TrafficController@index` | Aggregate traffic |
+| GET | `/api/network-health` | Network health page calls | Admin | `NetworkHealthController@index` | Health summary |
+| GET | `/api/incidents` | `getIncidents` | Admin | `IncidentController@index` | Incidents |
+| GET | `/api/mikrotik-configs` | MikroTik config page | Admin | `MikroTikConfigController@index` | Masked configs |
+| POST | `/api/mikrotik-configs` | MikroTik config page | Admin | `MikroTikConfigController@store` | Stored config |
+| DELETE | `/api/mikrotik-configs/{id}` | MikroTik config page | Admin | `MikroTikConfigController@destroy` | Deleted config |
+| POST | `/api/mikrotik-configs/{id}/connect` | MikroTik config page | Admin | `MikroTikConfigController@connect` | Read-only connection result |
 
-## New API Routes — Public
+## Customer portal
 
-| Method | Endpoint | Auth | Purpose |
-|---|---|---|---|
-| GET | `/api/public/packages` | None | Public package listing |
-| GET | `/api/public/coverage` | None | Service area info |
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| POST | `/api/customer/register` | `customerRegister` | None | `CustomerAuthController@register` | Customer token |
+| POST | `/api/customer/login` | `customerLogin` | None, throttled | `CustomerAuthController@login` | Customer token |
+| POST | `/api/customer/logout` | `customerLogout` | Customer | `CustomerAuthController@logout` | Revoked token |
+| GET | `/api/customer/me` | `getCustomerProfile` | Customer | `CustomerAuthController@me` | Customer profile |
+| GET | `/api/customer/packages` | `getCustomerPackages` | Customer | `CustomerDashboardController@packages` | Available packages |
+| GET | `/api/customer/service-status` | `getServiceStatus` | Customer | `CustomerDashboardController@serviceStatus` | Active package and due date |
+| GET | `/api/customer/purchases` | `getPurchases` | Customer | `CustomerDashboardController@purchases` | Purchase history |
+| GET | `/api/customer/purchases/{id}` | Reserved for detail view | Customer | `CustomerDashboardController@purchaseDetail` | Purchase and receipt |
+| GET | `/api/customer/payments` | `getPayments` | Customer | `CustomerDashboardController@payments` | Payment history |
+| GET | `/api/customer/payments/{id}/status` | `getPaymentStatus` | Customer | `CustomerDashboardController@paymentStatus` | Current payment state |
+| POST | `/api/customer/purchase` | `initiatePurchase` | Customer | `CustomerDashboardController@initiatePurchase` | Server-priced purchase and STK push |
+| POST | `/api/customer/renew` | Available for renewal flows | Customer | `CustomerDashboardController@renew` | Renewal purchase |
+| GET | `/api/customer/support-tickets` | `getSupportTickets` | Customer | `CustomerDashboardController@supportTickets` | Own tickets |
+| POST | `/api/customer/support-tickets` | `createSupportTicket` | Customer | `CustomerDashboardController@createSupportTicket` | New ticket |
 
-## New API Routes — M-Pesa Callback
+## Admin billing
 
-| Method | Endpoint | Auth | Purpose |
-|---|---|---|---|
-| POST | `/api/mpesa/callback` | Provider-validated | Daraja STK push callback |
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| GET | `/api/admin/packages` | `getAdminPackages` | Admin | `PackageController@index` | Package catalog |
+| POST | `/api/admin/packages` | `createAdminPackage` | Admin | `PackageController@store` | New package |
+| PUT | `/api/admin/packages/{id}` | `updateAdminPackage` | Admin | `PackageController@update` | Updated package |
+| DELETE | `/api/admin/packages/{id}` | `deleteAdminPackage` | Admin | `PackageController@destroy` | Removed package |
+| GET | `/api/admin/customers` | `getAdminCustomers` | Admin | `AdminBillingController@customers` | Paginated customers |
+| GET | `/api/admin/customers/{id}` | `getAdminCustomer` | Admin | `AdminBillingController@customerDetail` | Customer billing detail |
+| GET | `/api/admin/payments` | `getAdminPayments` | Admin | `AdminBillingController@payments` | Paginated payments |
+| GET | `/api/admin/payments/pending` | `getPendingAdminPayments` | Admin | `AdminBillingController@pendingPayments` | Pending payments |
+| GET | `/api/admin/payments/reconciliation` | `getReconciliationQueue` | Admin | `AdminBillingController@reconciliationQueue` | Reconciliation queue |
+| POST | `/api/admin/payments/{id}/reconcile` | `reconcileAdminPayment` | Admin | `AdminBillingController@reconcilePayment` | Reconciled payment |
+| POST | `/api/admin/service-accounts/{id}/retry-activation` | `retryAdminActivation` | Admin | `AdminBillingController@retryActivation` | Retried activation |
+| GET | `/api/admin/reports/revenue?period=` | `getRevenueReport` | Admin | `AdminBillingController@revenueReport` | Revenue and subscriber metrics |
+| GET | `/api/admin/audit-logs` | `getAdminAuditLogs` | Admin | `AdminBillingController@auditLogs` | Paginated audit logs |
 
-## New API Routes — Admin Billing
+## Deliberately not present
 
-| Method | Endpoint | Auth | Purpose |
-|---|---|---|---|
-| GET | `/api/admin/packages` | Sanctum (admin+) | List all packages |
-| POST | `/api/admin/packages` | Sanctum (admin+) | Create package |
-| PUT | `/api/admin/packages/{id}` | Sanctum (admin+) | Update package |
-| DELETE | `/api/admin/packages/{id}` | Sanctum (super_admin) | Delete package |
-| GET | `/api/admin/customers` | Sanctum (admin+) | List customers |
-| GET | `/api/admin/customers/{id}` | Sanctum (admin+) | Customer detail |
-| GET | `/api/admin/payments` | Sanctum (admin+) | All payments with filters |
-| GET | `/api/admin/payments/pending` | Sanctum (admin+) | Pending payments |
-| GET | `/api/admin/payments/reconciliation` | Sanctum (admin+) | Reconciliation queue |
-| POST | `/api/admin/payments/{id}/reconcile` | Sanctum (admin+) | Manual reconciliation |
-| GET | `/api/admin/reports/revenue` | Sanctum (admin+) | Revenue reports |
-| GET | `/api/admin/reports/subscribers` | Sanctum (admin+) | Active subscriber reports |
-| GET | `/api/admin/audit-logs` | Sanctum (super_admin) | Audit log viewer |
-| GET | `/api/admin/support-tickets` | Sanctum (admin+) | All support tickets |
-| PUT | `/api/admin/support-tickets/{id}` | Sanctum (admin+) | Update ticket status |
+The repository does not define customer password-reset routes, public coverage routes, subscriber-report routes, or admin support-ticket routes. They are not listed as available APIs and must not be called by the frontend until Laravel controllers and routes are added.
 
----
-
-## Authentication Guards
-
-| Guard | Users | Token Storage | Purpose |
-|---|---|---|---|
-| `web` | users table | Session | Admin web (not used for API) |
-| `sanctum` (default) | users table | personal_access_tokens | Admin API access |
-| `customer` | customers table | personal_access_tokens | Customer API access |
-
-## Role Permissions Matrix
-
-| Permission | super_admin | admin | billing | tech | support | customer |
-|---|---|---|---|---|---|---|
-| View admin dashboard | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Manage router configs | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
-| View router monitoring | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
-| Manage packages | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| View customers | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
-| Reconcile payments | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| View revenue reports | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Manage support tickets | ✓ | ✓ | ✗ | ✗ | ✓ | ✗ |
-| View audit logs | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Customer self-service | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ |
+The repository also does not define router reboot, terminal, firewall, queue, hotspot, client-disconnect, or router-write routes. This is intentional read-only protection.
