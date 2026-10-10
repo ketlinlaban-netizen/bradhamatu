@@ -46,6 +46,7 @@ class CustomerDashboardController extends Controller
 
         return response()->json([
             'active_package' => $activeAccount ? $this->serviceAccountResource($activeAccount) : null,
+            'next_due_at' => $activeAccount?->expires_at?->toIso8601String(),
             'last_expired' => $latestExpired ? $this->serviceAccountResource($latestExpired) : null,
         ]);
     }
@@ -92,6 +93,11 @@ class CustomerDashboardController extends Controller
         return response()->json(['payments' => $payments]);
     }
 
+    public function renew(Request $request): JsonResponse
+    {
+        return $this->initiatePurchase($request);
+    }
+
     public function initiatePurchase(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -128,10 +134,10 @@ class CustomerDashboardController extends Controller
         }
 
         return response()->json([
-            'purchase' => $this->purchaseResource($result['purchase']->fresh()->load(['payments', 'serviceAccount'])),
+            'purchase' => $this->purchaseResource($result['purchase']),
             'payment' => $this->paymentResource($result['payment']),
             'daraja_response' => $result['daraja_response'],
-        });
+        ]);
     }
 
     public function paymentStatus(Request $request, string $id): JsonResponse
@@ -225,8 +231,13 @@ class CustomerDashboardController extends Controller
 
     private function serviceAccountResource($sa): array
     {
+        $snapshot = $sa->purchase?->package_snapshot ?? [];
+
         return [
             'id' => $sa->id,
+            'package_id' => $sa->purchase?->package_id,
+            'package_name' => $snapshot['name'] ?? null,
+            'price_ksh' => isset($snapshot['price_minor']) ? $snapshot['price_minor'] / 100 : null,
             'activation_status' => $sa->activation_status,
             'access_type' => $sa->access_type,
             'activated_at' => $sa->activated_at?->toIso8601String(),

@@ -1,5 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
+import { CustomerAuthProvider } from "./auth/CustomerAuthContext";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -13,24 +14,47 @@ import { IncidentsPage } from "./pages/IncidentsPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { MikroTikConfigPage } from "./pages/MikroTikConfigPage";
+import { PublicHomePage } from "./pages/public/PublicHomePage";
+import { CustomerLoginPage } from "./pages/customer/CustomerLoginPage";
+import { CustomerRegisterPage } from "./pages/customer/CustomerRegisterPage";
+import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
+import { BillingFlowPage } from "./pages/BillingFlowPage";
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        {/* Public routes */}
+        <Route path="/" element={<PublicHomePage />} />
+        <Route path="/customer/login" element={<CustomerLoginPage />} />
+        <Route path="/customer/register" element={<CustomerRegisterPage />} />
+
+        {/* Customer portal */}
+        <Route
+          path="/customer/dashboard"
+          element={
+            <CustomerAuthProvider>
+              <CustomerDashboardPage />
+            </CustomerAuthProvider>
+          }
+        />
+
+        {/* Admin console */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/admin/login" element={<LoginPage />} />
         <Route element={<Layout />}>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/routers" element={<RoutersPage />} />
-          <Route path="/routers/:routerId" element={<RouterDetailPage />} />
-          <Route path="/offline" element={<OfflineRoutersPage />} />
-          <Route path="/clients" element={<ClientsPage />} />
-          <Route path="/traffic" element={<TrafficPage />} />
-          <Route path="/network-health" element={<NetworkHealthPage />} />
-          <Route path="/incidents" element={<IncidentsPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/system" element={<SystemPage />} />
-          <Route path="/mikrotik-config" element={<MikroTikConfigPage />} />
+          <Route path="/admin" element={<DashboardPage />} />
+          <Route path="/admin/billing-flow" element={<BillingFlowPage />} />
+          <Route path="/admin/routers" element={<RoutersPage />} />
+          <Route path="/admin/routers/:routerId" element={<RouterDetailPage />} />
+          <Route path="/admin/offline" element={<OfflineRoutersPage />} />
+          <Route path="/admin/clients" element={<ClientsPage />} />
+          <Route path="/admin/traffic" element={<TrafficPage />} />
+          <Route path="/admin/network-health" element={<NetworkHealthPage />} />
+          <Route path="/admin/incidents" element={<IncidentsPage />} />
+          <Route path="/admin/reports" element={<ReportsPage />} />
+          <Route path="/admin/system" element={<SystemPage />} />
+          <Route path="/admin/mikrotik-config" element={<MikroTikConfigPage />} />
         </Route>
       </Routes>
     </AuthProvider>

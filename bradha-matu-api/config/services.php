@@ -35,4 +35,19 @@ return [
         ],
     ],
 
+    'daraja' => [
+        'env' => env('DARAJA_ENV', 'sandbox'),
+        'consumer_key' => env('DARAJA_CONSUMER_KEY', ''),
+        'consumer_secret' => env('DARAJA_CONSUMER_SECRET', ''),
+        'short_code' => env('DARAJA_SHORT_CODE', ''),
+        'passkey' => env('DARAJA_PASSKEY', ''),
+        'callback_url' => env('DARAJA_CALLBACK_URL', ''),
+        'transaction_type' => env('DARAJA_TRANSACTION_TYPE', 'CustomerPayBillOnline'),
+    ],
+
+    'mikrotik' => [
+        'billing_username' => env('MIKROTIK_BILLING_USERNAME', ''),
+        'billing_password' => env('MIKROTIK_BILLING_PASSWORD', ''),
+    ],
+
 ];

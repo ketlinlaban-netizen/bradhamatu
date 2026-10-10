@@ -14,6 +14,7 @@ import {
   Zap,
   ShieldCheck,
   Cable,
+  Workflow,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 
@@ -27,28 +28,29 @@ interface NavItem {
 const navSections: Array<{ label?: string; items: NavItem[] }> = [
   {
     items: [
-      { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+      { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+      { to: "/admin/billing-flow", label: "Billing Flow", icon: Workflow },
     ],
   },
   {
     label: "Routers",
     items: [
-      { to: "/routers", label: "All Routers", icon: RouterIcon },
-      { to: "/routers?status=online", label: "Online", icon: Zap },
-      { to: "/routers?status=offline", label: "Offline", icon: CircleOff },
-      { to: "/routers?status=degraded", label: "Degraded", icon: AlertTriangle },
-      { to: "/offline", label: "Offline Center", icon: CircleOff },
+      { to: "/admin/routers", label: "All Routers", icon: RouterIcon },
+      { to: "/admin/routers?status=online", label: "Online", icon: Zap },
+      { to: "/admin/routers?status=offline", label: "Offline", icon: CircleOff },
+      { to: "/admin/routers?status=degraded", label: "Degraded", icon: AlertTriangle },
+      { to: "/admin/offline", label: "Offline Center", icon: CircleOff },
     ],
   },
   {
     items: [
-      { to: "/clients", label: "Clients", icon: Users },
-      { to: "/traffic", label: "Traffic", icon: Activity },
-      { to: "/network-health", label: "Network Health", icon: HeartPulse },
-      { to: "/incidents", label: "Incidents", icon: AlertTriangle },
-      { to: "/reports", label: "Reports", icon: FileText },
-      { to: "/mikrotik-config", label: "MikroTik Config", icon: Cable },
-      { to: "/system", label: "System", icon: Settings },
+      { to: "/admin/clients", label: "Clients", icon: Users },
+      { to: "/admin/traffic", label: "Traffic", icon: Activity },
+      { to: "/admin/network-health", label: "Network Health", icon: HeartPulse },
+      { to: "/admin/incidents", label: "Incidents", icon: AlertTriangle },
+      { to: "/admin/reports", label: "Reports", icon: FileText },
+      { to: "/admin/mikrotik-config", label: "MikroTik Config", icon: Cable },
+      { to: "/admin/system", label: "System", icon: Settings },
     ],
   },
 ];
