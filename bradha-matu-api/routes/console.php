@@ -31,3 +31,15 @@ Artisan::command('billing:process-activations', function (ExpiryService $service
     $count = $service->processPendingActivations();
     $this->info("Processed {$count} pending activations.");
 })->purpose('Activate purchases with verified payments');
+
+// Send expiry reminder SMS — every hour
+Artisan::command('billing:expiry-reminders', function (ExpiryService $service) {
+    $count = $service->sendExpiryReminders();
+    $this->info("Sent {$count} expiry reminders.");
+})->purpose('Send expiry reminder SMS to customers');
+
+// Process auto-renewals — every 30 minutes
+Artisan::command('billing:auto-renewals', function (ExpiryService $service) {
+    $count = $service->processAutoRenewals();
+    $this->info("Processed {$count} auto-renewals.");
+})->purpose('Auto-renew expiring subscriptions from wallet balance');

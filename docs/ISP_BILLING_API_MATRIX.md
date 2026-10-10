@@ -64,6 +64,12 @@
 | POST | `/api/customer/renew` | Available for renewal flows | Customer | `CustomerDashboardController@renew` | Renewal purchase |
 | GET | `/api/customer/support-tickets` | `getSupportTickets` | Customer | `CustomerDashboardController@supportTickets` | Own tickets |
 | POST | `/api/customer/support-tickets` | `createSupportTicket` | Customer | `CustomerDashboardController@createSupportTicket` | New ticket |
+| POST | `/api/customer/change-password` | `changePassword` | Customer | `CustomerPasswordController@changePassword` | Password changed and synced to router |
+| POST | `/api/customer/vouchers/redeem` | `redeemVoucher` | Customer | `VoucherController@redeem` | Voucher redeemed and plan activated |
+| GET | `/api/customer/wallet/balance` | `getWalletBalance` | Customer | `WalletController@balance` | Wallet balance and auto-renewal status |
+| POST | `/api/customer/wallet/topup` | `topUpWallet` | Customer | `WalletController@topUp` | Wallet top-up |
+| POST | `/api/customer/wallet/auto-renewal` | `toggleAutoRenewal` | Customer | `WalletController@toggleAutoRenewal` | Toggle auto-renewal |
+| GET | `/api/customer/wallet/transactions` | `getWalletTransactions` | Customer | `WalletController@transactions` | Wallet transaction history |
 
 ## Admin billing
 
@@ -82,6 +88,40 @@
 | POST | `/api/admin/service-accounts/{id}/retry-activation` | `retryAdminActivation` | Admin | `AdminBillingController@retryActivation` | Retried activation |
 | GET | `/api/admin/reports/revenue?period=` | `getRevenueReport` | Admin | `AdminBillingController@revenueReport` | Revenue and subscriber metrics |
 | GET | `/api/admin/audit-logs` | `getAdminAuditLogs` | Admin | `AdminBillingController@auditLogs` | Paginated audit logs |
+
+## Admin voucher management
+
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| GET | `/api/admin/vouchers` | `getAdminVouchers` | Admin | `VoucherController@index` | Paginated vouchers |
+| POST | `/api/admin/vouchers/generate` | `generateVoucherBatch` | Admin | `VoucherController@generateBatch` | Batch-generated vouchers |
+
+## Admin SMS configuration
+
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| GET | `/api/admin/sms/templates` | `getSmsTemplates` | Admin | `SmsTemplateController@templates` | SMS template list |
+| GET | `/api/admin/sms/settings` | `getSmsSettings` | Admin | `SmsTemplateController@settings` | SMS gateway settings |
+| PUT | `/api/admin/sms/settings` | `updateSmsSettings` | Admin | `SmsTemplateController@updateSettings` | Updated SMS settings |
+| GET | `/api/admin/sms/history` | `getSmsHistory` | Admin | `SmsTemplateController@history` | Paginated SMS message log |
+
+## Admin app settings
+
+| Method | Laravel path | Frontend caller | Auth | Controller | Result |
+|---|---|---|---|---|---|
+| GET | `/api/admin/settings` | `getAdminSettings` | Admin | `AppSettingController@index` | Key-value settings |
+| PUT | `/api/admin/settings` | `updateAdminSettings` | Admin | `AppSettingController@update` | Updated settings |
+
+## Scheduled cron commands
+
+| Command | Schedule | Service method | Purpose |
+|---|---|---|---|
+| `billing:process-expired` | Every 5 min | `ExpiryService::processExpiredAccounts` | Deactivate expired accounts + send expiry SMS |
+| `billing:retry-activations` | Every 10 min | `ExpiryService::retryFailedActivations` | Retry failed hotspot/PPPoE activations |
+| `billing:reconcile-payments` | Every 5 min | `ExpiryService::reconcileStalePayments` | Query Daraja for stale pending payments |
+| `billing:process-activations` | Every 2 min | `ExpiryService::processPendingActivations` | Activate purchases with verified payments |
+| `billing:expiry-reminders` | Every hour | `ExpiryService::sendExpiryReminders` | Send expiry reminder SMS |
+| `billing:auto-renewals` | Every 30 min | `ExpiryService::processAutoRenewals` | Auto-renew from wallet balance |
 
 ## Deliberately not present
 

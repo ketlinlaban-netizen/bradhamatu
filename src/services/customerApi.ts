@@ -128,3 +128,35 @@ export async function createSupportTicket(data: {
   const result = await apiPost<{ ticket: SupportTicket }>("/customer/support-tickets", data);
   return result.ticket;
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiPost("/customer/change-password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+}
+
+export async function redeemVoucher(code: string): Promise<{ purchase: Purchase }> {
+  return apiPost("/customer/vouchers/redeem", { code });
+}
+
+export async function getWalletBalance(): Promise<{
+  balance_minor: number;
+  balance_ksh: number;
+  auto_renewal: boolean;
+}> {
+  return apiGet("/customer/wallet/balance");
+}
+
+export async function topUpWallet(amountMinor: number): Promise<{ transaction: unknown }> {
+  return apiPost("/customer/wallet/topup", { amount_minor: amountMinor });
+}
+
+export async function toggleAutoRenewal(enabled: boolean): Promise<{ auto_renewal: boolean }> {
+  return apiPost("/customer/wallet/auto-renewal", { enabled });
+}
+
+export async function getWalletTransactions(): Promise<unknown[]> {
+  const result = await apiGet<{ data: unknown[] }>("/customer/wallet/transactions");
+  return result.data ?? [];
+}

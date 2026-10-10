@@ -86,3 +86,65 @@ export function getRevenueReport(period: "today" | "week" | "month" | "all" = "t
 export function getAdminAuditLogs(action?: string): Promise<AdminPage<Record<string, unknown>>> {
   return apiGet(`/admin/audit-logs${action ? `?action=${encodeURIComponent(action)}` : ""}`);
 }
+
+export interface AdminVoucher {
+  id: string;
+  code: string;
+  package_id: string;
+  status: string;
+  batch_id?: string;
+  used_at?: string | null;
+  package?: AdminBillingPackage;
+}
+
+export function getAdminVouchers(status?: string): Promise<AdminPage<AdminVoucher>> {
+  return apiGet(`/admin/vouchers${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+}
+
+export function generateVoucherBatch(packageId: string, quantity: number): Promise<{
+  vouchers: AdminVoucher[];
+  count: number;
+}> {
+  return apiPost("/admin/vouchers/generate", { package_id: packageId, quantity });
+}
+
+export interface SmsTemplate {
+  welcome: string;
+  payment_confirmation: string;
+  expiry_reminder: string;
+  expiry_notification: string;
+  voucher_purchase: string;
+  activation_success: string;
+}
+
+export function getSmsTemplates(): Promise<{ templates: SmsTemplate }> {
+  return apiGet("/admin/sms/templates");
+}
+
+export function getSmsSettings(): Promise<{
+  sms_endpoint: string;
+  sms_sender_id: string;
+  sms_api_key_configured: boolean;
+}> {
+  return apiGet("/admin/sms/settings");
+}
+
+export function updateSmsSettings(data: {
+  sms_endpoint?: string;
+  sms_sender_id?: string;
+  sms_api_key?: string;
+}): Promise<{ success: boolean }> {
+  return apiPut("/admin/sms/settings", data);
+}
+
+export function getSmsHistory(status?: string): Promise<AdminPage<Record<string, unknown>>> {
+  return apiGet(`/admin/sms/history${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+}
+
+export function getAdminSettings(): Promise<{ settings: Record<string, string> }> {
+  return apiGet("/admin/settings");
+}
+
+export function updateAdminSettings(settings: Record<string, string>): Promise<{ success: boolean }> {
+  return apiPut("/admin/settings", { settings });
+}

@@ -29,7 +29,12 @@ use App\Http\Controllers\RouterMetricController;
 use App\Http\Controllers\RouterStatusController;
 use App\Http\Controllers\RouterTrafficController;
 use App\Http\Controllers\RouterWirelessController;
+use App\Http\Controllers\AppSettingController;
+use App\Http\Controllers\CustomerPasswordController;
+use App\Http\Controllers\SmsTemplateController;
 use App\Http\Controllers\TrafficController;
+use App\Http\Controllers\VoucherController;
+use App\Http\Controllers\WalletController;
 
 // ─── Health (no auth, no sensitive data) ───────────────────────────────
 Route::get('/health', [HealthController::class, 'index']);
@@ -126,6 +131,14 @@ Route::prefix('customer')->group(function () {
         Route::get('/payments/{id}/status', [CustomerDashboardController::class, 'paymentStatus']);
         Route::get('/support-tickets', [CustomerDashboardController::class, 'supportTickets']);
         Route::post('/support-tickets', [CustomerDashboardController::class, 'createSupportTicket']);
+
+        Route::post('/change-password', [CustomerPasswordController::class, 'changePassword']);
+        Route::post('/vouchers/redeem', [VoucherController::class, 'redeem']);
+
+        Route::get('/wallet/balance', [WalletController::class, 'balance']);
+        Route::post('/wallet/topup', [WalletController::class, 'topUp']);
+        Route::post('/wallet/auto-renewal', [WalletController::class, 'toggleAutoRenewal']);
+        Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
     });
 });
 
@@ -151,4 +164,15 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.user'])->group(functi
     Route::get('/reports/revenue', [AdminBillingController::class, 'revenueReport']);
 
     Route::get('/audit-logs', [AdminBillingController::class, 'auditLogs']);
+
+    Route::get('/vouchers', [VoucherController::class, 'index']);
+    Route::post('/vouchers/generate', [VoucherController::class, 'generateBatch']);
+
+    Route::get('/sms/templates', [SmsTemplateController::class, 'templates']);
+    Route::get('/sms/settings', [SmsTemplateController::class, 'settings']);
+    Route::put('/sms/settings', [SmsTemplateController::class, 'updateSettings']);
+    Route::get('/sms/history', [SmsTemplateController::class, 'history']);
+
+    Route::get('/settings', [AppSettingController::class, 'index']);
+    Route::put('/settings', [AppSettingController::class, 'update']);
 });
