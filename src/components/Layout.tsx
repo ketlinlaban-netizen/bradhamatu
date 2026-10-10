@@ -71,7 +71,7 @@ export function Layout() {
 
           <div className="ml-auto flex items-center gap-3">
             <button
-              onClick={() => navigate("/incidents")}
+              onClick={() => navigate("/admin/incidents")}
               className="relative text-slate-400 hover:text-white p-2 rounded-lg hover:bg-noc-hover transition-colors"
               title="Incidents"
             >
