@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Router;
-use App\Services\MikroTikApiClient;
+use App\Services\RouterApiException;
+use App\Services\RouterConnectionTester;
+use App\Services\RouterDestinationPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * MikroTikConfigController — manage MikroTik router configurations
@@ -23,6 +27,11 @@ use Illuminate\Support\Str;
  */
 class MikroTikConfigController extends Controller
 {
+    public function __construct(
+        private RouterConnectionTester $connectionTester,
+        private RouterDestinationPolicy $destinationPolicy,
+    ) {}
+
     /**
      * List all router configs with masked passwords.
      */
@@ -43,6 +52,9 @@ class MikroTikConfigController extends Controller
             'site' => $r->site,
             'isConnected' => (bool) ($r->status_override === 'online'),
             'lastSeenAt' => $r->last_seen_at?->toIso8601String(),
+            'monitoringEnabled' => (bool) $r->monitoring_enabled,
+            'lastRouterosVersion' => $r->last_routeros_version,
+            'lastErrorCategory' => $r->last_error_category,
             'createdAt' => $r->created_at?->toIso8601String(),
         ]);
 
@@ -58,29 +70,43 @@ class MikroTikConfigController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'host' => 'required|string|max:255',
-            'apiPort' => 'sometimes|integer|min:1|max:65535',
+            'apiPort' => ['sometimes', 'integer', Rule::in(config('mikrotik.allowed_ports', [8728, 8729]))],
             'useTls' => 'boolean',
-            'verifyCert' => 'sometimes|boolean',
+            'verifyCert' => 'sometimes|accepted',
             'username' => 'required|string|max:255',
             'password' => 'required|string|min:1|max:255',
             'location' => 'nullable|string|max:255',
             'site' => 'nullable|string|max:255',
         ]);
 
-        $useTls = (bool) ($validated['useTls'] ?? false);
+        try {
+            $this->destinationPolicy->validateInput($validated['host']);
+        } catch (RouterApiException $exception) {
+            throw ValidationException::withMessages(['host' => $exception->safeMessage]);
+        }
+
+        $useTls = (bool) ($validated['useTls'] ?? true);
+        $apiPort = (int) ($validated['apiPort'] ?? ($useTls ? 8729 : 8728));
+        if (($apiPort === 8728 && $useTls) || ($apiPort === 8729 && ! $useTls)) {
+            throw ValidationException::withMessages([
+                'apiPort' => 'Port 8728 is plain Binary API and port 8729 is API-SSL; select a matching TLS mode or a verified custom service port.',
+            ]);
+        }
+
         $router = Router::create([
             'id' => Str::uuid()->toString(),
             'name' => $validated['name'],
             'identity' => $validated['name'],
             'ip_address' => $validated['host'],
-            'api_port' => $validated['apiPort'] ?? ($useTls ? 8729 : 8728),
+            'api_port' => $apiPort,
             'api_use_tls' => $useTls,
             'api_username' => $validated['username'],
             'api_password' => $validated['password'],
             'location' => $validated['location'] ?? null,
             'site' => $validated['site'] ?? null,
             'use_ssl' => true,
-            'verify_cert' => (bool) ($validated['verifyCert'] ?? true),
+            'verify_cert' => true,
+            'monitoring_enabled' => true,
         ]);
 
         return response()->json([
@@ -118,12 +144,10 @@ class MikroTikConfigController extends Controller
     /**
      * Test the connection to a MikroTik router and return live system data.
      *
-     * This attempts a binary API connection (TCP 8728/8729). If successful,
-     * it fetches /system/resource/print and /system/identity/print to
-     * return real router data. If the connection fails, it returns the
-     * error message so the UI can display it.
+     * This tests the server-selected live transport and fetches identity and
+     * system resource data. If it fails, return a safe error for the UI.
      *
-     * This is READ-ONLY: only print commands are sent. No mutations.
+     * This is READ-ONLY: only fixed print/one-shot monitor reads are sent.
      */
     public function connect(string $id): JsonResponse
     {
@@ -132,69 +156,17 @@ class MikroTikConfigController extends Controller
             return response()->json(['error' => 'Configuration not found'], 404);
         }
 
-        $port = $router->api_port ?? 8728;
-        $useTls = (bool) $router->api_use_tls;
-        $timeout = (int) config('mikrotik.timeout', 10);
-
-        try {
-            $client = new MikroTikApiClient(
-                $router->ip_address,
-                $port,
-                $useTls,
-                $timeout,
-                (bool) $router->verify_cert,
-            );
-            $client->connect($router->api_username, $router->api_password);
-
-            // Fetch system resource (CPU, memory, uptime, version, etc.)
-            $resource = $client->print('/system/resource/print');
-            $identity = $client->print('/system/identity/print');
-            $client->disconnect();
-
-            // Update last_seen_at
-            $router->update([
-                'last_seen_at' => now(),
-                'status_override' => 'online',
-            ]);
-
-            $res = $resource[0] ?? [];
-            $idName = $identity[0]['name'] ?? $router->name;
-
-            return response()->json([
-                'success' => true,
-                'state' => 'established',
-                'message' => 'Connection established. READ-ONLY SESSION.',
-                'readOnly' => true,
-                'router' => [
-                    'id' => $router->id,
-                    'name' => $router->name,
-                    'identity' => $idName,
-                    'host' => $router->ip_address,
-                    'model' => $res['board-name'] ?? 'Unknown',
-                    'serialNumber' => $res['serial-number'] ?? '',
-                    'routerosVersion' => $res['version'] ?? 'Unknown',
-                    'architecture' => $res['architecture'] ?? '',
-                    'cpuLoad' => (int) ($res['cpu-load'] ?? 0),
-                    'uptime' => $res['uptime'] ?? '',
-                    'totalMemory' => (int) ($res['total-memory'] ?? 0),
-                    'freeMemory' => (int) ($res['free-memory'] ?? 0),
-                    'totalHdd' => (int) ($res['total-hdd-space'] ?? 0),
-                    'freeHdd' => (int) ($res['free-hdd-space'] ?? 0),
-                    'cpuCount' => (int) ($res['cpu-count'] ?? 0),
-                    'platform' => $res['platform'] ?? '',
-                ],
-            ]);
-        } catch (\Exception $e) {
-            // Mark as offline
-            $router->update(['status_override' => 'offline']);
-
+        if (! in_array(config('mikrotik.provider'), ['mikrotik', 'rest'], true)) {
             return response()->json([
                 'success' => false,
                 'state' => 'failed',
-                'message' => $e->getMessage(),
+                'category' => 'mock_mode',
+                'message' => 'Connection tests are disabled while the router provider is in mock mode.',
                 'readOnly' => true,
                 'router' => null,
-            ], 200);
+            ], 409);
         }
+
+        return response()->json($this->connectionTester->test($router));
     }
 }

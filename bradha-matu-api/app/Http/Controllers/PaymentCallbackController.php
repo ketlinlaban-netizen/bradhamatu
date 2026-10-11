@@ -7,6 +7,8 @@ use App\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
+use Throwable;
 
 class PaymentCallbackController extends Controller
 {
@@ -48,5 +50,46 @@ class PaymentCallbackController extends Controller
         }
 
         return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Processed']);
+    }
+
+    public function pesapalIpn(Request $request): JsonResponse
+    {
+        return $this->hostedCallback($request, 'pesapal');
+    }
+
+    public function flutterwaveWebhook(Request $request): JsonResponse
+    {
+        return $this->hostedCallback($request, 'flutterwave');
+    }
+
+    public function paystackWebhook(Request $request): JsonResponse
+    {
+        return $this->hostedCallback($request, 'paystack');
+    }
+
+    private function hostedCallback(Request $request, string $provider): JsonResponse
+    {
+        if (strlen($request->getContent()) > 65536) {
+            return response()->json(['error' => 'Rejected'], 413);
+        }
+
+        try {
+            $gateway = match ($provider) {
+                'pesapal' => app(\App\Services\PesapalGatewayClient::class),
+                'flutterwave' => app(\App\Services\FlutterwaveGatewayClient::class),
+                'paystack' => app(\App\Services\PaystackGatewayClient::class),
+            };
+            $callback = $gateway->callbackReference($request);
+            if ($callback !== null) {
+                $this->paymentService->processHostedCallback($provider, $callback);
+            }
+        } catch (InvalidArgumentException) {
+            return response()->json(['error' => 'Invalid notification'], 401);
+        } catch (Throwable) {
+            Log::warning('Hosted payment notification could not be processed', ['provider' => $provider]);
+            return response()->json(['error' => 'Notification processing failed'], 500);
+        }
+
+        return response()->json(['status' => 200]);
     }
 }

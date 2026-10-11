@@ -15,7 +15,7 @@ class SmsMessage extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'customer_id', 'to_phone', 'template', 'body',
+        'id', 'customer_id', 'to_phone', 'template', 'body',
         'status', 'error', 'sent_at', 'variables',
     ];
 

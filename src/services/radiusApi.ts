@@ -16,7 +16,6 @@ export interface RadiusNas {
   shortname: string | null;
   type: string;
   ports: number;
-  secret: string;
   description: string | null;
   router?: { id: string; name: string; ip_address: string } | null;
 }

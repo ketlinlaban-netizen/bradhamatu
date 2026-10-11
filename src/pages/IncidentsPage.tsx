@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, AlertCircle, Info, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, AlertCircle, Info, CheckCircle2, RefreshCw } from "lucide-react";
 import { routerService } from "../services/RouterService";
 import type { Incident } from "../types";
 import { timeAgo } from "../utils/format";
@@ -9,13 +9,23 @@ import { LoadingSpinner } from "../components/ui";
 export function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadIncidents = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setIncidents(await routerService.getIncidents());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load incidents.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    routerService.getIncidents().then((i) => {
-      setIncidents(i);
-      setLoading(false);
-    });
-  }, []);
+    void loadIncidents();
+  }, [loadIncidents]);
 
   if (loading) return <LoadingSpinner label="Loading incidents..." />;
 
@@ -38,8 +48,16 @@ export function IncidentsPage() {
           {incidents.filter((i) => !i.resolvedAt).length} active incidents
         </p>
       </div>
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span>Incident information is unavailable: {error}</span>
+          <button type="button" onClick={() => void loadIncidents()} className="btn-secondary flex items-center gap-2 !px-3 !py-1.5" disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Retry
+          </button>
+        </div>
+      )}
 
-      {sorted.length === 0 ? (
+      {error ? null : sorted.length === 0 ? (
         <div className="card">
           <div className="flex flex-col items-center justify-center py-12">
             <CheckCircle2 className="w-12 h-12 text-green-500 mb-3" />
@@ -59,7 +77,7 @@ export function IncidentsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-1">
-                      <Link to={`/routers/${incident.routerId}`} className="font-medium text-slate-100 hover:text-noc-accent">
+                      <Link to={`/admin/routers/${incident.routerId}`} className="font-medium text-slate-100 hover:text-noc-accent">
                         {incident.routerName}
                       </Link>
                       <span className={`text-xs font-medium uppercase tracking-wider ${cfg.color}`}>

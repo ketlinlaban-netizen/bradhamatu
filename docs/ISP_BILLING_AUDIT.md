@@ -14,6 +14,12 @@ The existing project is a **read-only Network Operations Console** for monitorin
 
 ---
 
+## Implementation status update
+
+The customer, package, payment, invoice, wallet, and voucher foundations have since been added. Subscriber activation now targets a separately hosted FreeRADIUS provisioning API using HTTPS with mutual TLS; direct RouterOS billing-user mutations were removed. The private FreeRADIUS host, VPN route, API implementation, CA, and client certificates have not been supplied or live-tested, so activation remains safely pending until those prerequisites exist. Payment gateways and their mocked tests are documented separately in `docs/PAYMENT_GATEWAYS.md`.
+
+---
+
 ## Tech Stack
 
 ### Frontend

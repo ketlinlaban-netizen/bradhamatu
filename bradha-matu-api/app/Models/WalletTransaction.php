@@ -11,7 +11,7 @@ class WalletTransaction extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'customer_id', 'type', 'amount_minor', 'balance_after_minor',
+        'id', 'customer_id', 'type', 'amount_minor', 'balance_after_minor',
         'description', 'payment_id', 'purchase_id',
     ];
 

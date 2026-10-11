@@ -14,7 +14,7 @@ return new class extends Migration {
             $table->string('shortname', 32)->nullable();
             $table->string('type', 30)->default('other');
             $table->integer('ports')->default(0);
-            $table->string('secret', 60)->default('secret');
+            $table->string('secret', 60);
             $table->string('server', 64)->nullable();
             $table->string('community', 50)->nullable();
             $table->string('description', 200)->nullable();
@@ -85,7 +85,7 @@ return new class extends Migration {
 
         // radacct — accounting/session log
         Schema::create('radacct', function (Blueprint $table) {
-            $table->bigInteger('radacctid', true)->primary();
+            $table->bigIncrements('radacctid');
             $table->string('acctsessionid', 64)->default('');
             $table->string('acctuniqueid', 32)->default('')->unique();
             $table->string('username', 64)->default('');

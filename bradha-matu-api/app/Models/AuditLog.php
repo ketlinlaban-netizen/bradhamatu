@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class AuditLog extends Model
 {
@@ -22,6 +23,7 @@ class AuditLog extends Model
     public static function record(string $actorType, ?string $actorId, string $action, ?string $entityType = null, ?string $entityId = null, ?array $details = null): self
     {
         return self::create([
+            'id' => Str::uuid()->toString(),
             'actor_type' => $actorType,
             'actor_id' => $actorId,
             'action' => $action,

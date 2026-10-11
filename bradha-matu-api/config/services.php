@@ -45,9 +45,32 @@ return [
         'transaction_type' => env('DARAJA_TRANSACTION_TYPE', 'CustomerPayBillOnline'),
     ],
 
-    'mikrotik' => [
-        'billing_username' => env('MIKROTIK_BILLING_USERNAME', ''),
-        'billing_password' => env('MIKROTIK_BILLING_PASSWORD', ''),
+    'pesapal' => [
+        'env' => env('PESAPAL_ENV', 'sandbox'),
+        'consumer_key' => env('PESAPAL_CONSUMER_KEY', ''),
+        'consumer_secret' => env('PESAPAL_CONSUMER_SECRET', ''),
+        'ipn_id' => env('PESAPAL_IPN_ID', ''),
+        'currency' => env('PESAPAL_CURRENCY', 'KES'),
+    ],
+
+    'flutterwave' => [
+        'secret_key' => env('FLW_SECRET_KEY', ''),
+        'webhook_secret_hash' => env('FLW_WEBHOOK_SECRET_HASH', ''),
+        'currency' => env('FLW_CURRENCY', 'KES'),
+    ],
+
+    'paystack' => [
+        'secret_key' => env('PAYSTACK_SECRET_KEY', ''),
+        'currency' => env('PAYSTACK_CURRENCY', 'KES'),
+    ],
+
+    'radius_provisioning' => [
+        'url' => env('RADIUS_PROVISIONING_URL', ''),
+        'allowed_host' => env('RADIUS_PROVISIONING_ALLOWED_HOST', ''),
+        'client_certificate' => env('RADIUS_PROVISIONING_CLIENT_CERT', ''),
+        'client_private_key' => env('RADIUS_PROVISIONING_CLIENT_KEY', ''),
+        'client_private_key_passphrase' => env('RADIUS_PROVISIONING_CLIENT_KEY_PASSPHRASE', ''),
+        'ca_bundle' => env('RADIUS_PROVISIONING_CA_BUNDLE', ''),
     ],
 
 ];

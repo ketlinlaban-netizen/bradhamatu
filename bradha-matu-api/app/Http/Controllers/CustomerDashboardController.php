@@ -7,15 +7,20 @@ use App\Models\Package;
 use App\Models\ServiceAccount;
 use App\Services\ActivationService;
 use App\Services\PaymentService;
+use App\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
+use RuntimeException;
 
 class CustomerDashboardController extends Controller
 {
     public function __construct(
         private PaymentService $paymentService,
-        private ActivationService $activationService
+        private ActivationService $activationService,
+        private InvoiceService $invoiceService,
     ) {}
 
     public function packages(Request $request): JsonResponse
@@ -27,6 +32,11 @@ class CustomerDashboardController extends Controller
             ->map(fn ($p) => $this->packageResource($p));
 
         return response()->json(['packages' => $packages]);
+    }
+
+    public function paymentMethods(): JsonResponse
+    {
+        return response()->json(['methods' => $this->paymentService->availablePaymentMethods()]);
     }
 
     public function serviceStatus(Request $request): JsonResponse
@@ -78,6 +88,22 @@ class CustomerDashboardController extends Controller
         return response()->json($this->purchaseResource($purchase));
     }
 
+    public function purchaseInvoice(Request $request, string $id): JsonResponse
+    {
+        $purchase = $request->user()
+            ->purchases()
+            ->with(['customer', 'package'])
+            ->whereNotNull('invoice_number')
+            ->where('id', $id)
+            ->first();
+
+        if (! $purchase) {
+            return response()->json(['error' => 'Invoice not found'], 404);
+        }
+
+        return response()->json($this->invoiceService->buildInvoiceData($purchase));
+    }
+
     public function payments(Request $request): JsonResponse
     {
         $payments = $request->user()
@@ -102,6 +128,13 @@ class CustomerDashboardController extends Controller
     {
         $validated = $request->validate([
             'package_id' => 'required|string',
+            'provider' => 'nullable|in:mpesa,pesapal,flutterwave,paystack',
+            'email' => [
+                'nullable',
+                'email',
+                'max:255',
+                Rule::requiredIf(fn () => in_array($request->input('provider'), ['flutterwave', 'paystack'], true)),
+            ],
         ]);
 
         $package = Package::where('id', $validated['package_id'])
@@ -119,9 +152,18 @@ class CustomerDashboardController extends Controller
         }
 
         try {
-            $result = $this->paymentService->initiatePurchase($customer, $validated['package_id']);
-        } catch (\Throwable $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            $result = $this->paymentService->initiatePurchase(
+                $customer,
+                $validated['package_id'],
+                $validated['provider'] ?? 'mpesa',
+                $validated['email'] ?? null,
+            );
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        } catch (RuntimeException $e) {
+            return response()->json(['error' => $e->getMessage()], 503);
+        } catch (\Throwable) {
+            return response()->json(['error' => 'Unable to initiate the payment. Please try again.'], 500);
         }
 
         // Attempt immediate activation if payment is already successful (sandbox/manual)
@@ -137,6 +179,7 @@ class CustomerDashboardController extends Controller
             'purchase' => $this->purchaseResource($result['purchase']),
             'payment' => $this->paymentResource($result['payment']),
             'daraja_response' => $result['daraja_response'],
+            'checkout_url' => $result['checkout_url'],
         ]);
     }
 
@@ -185,12 +228,17 @@ class CustomerDashboardController extends Controller
 
     private function packageResource(Package $p): array
     {
+        $quote = $this->invoiceService->quote((int) $p->price_minor);
+
         return [
             'id' => $p->id,
             'name' => $p->name,
             'description' => $p->description,
             'price_ksh' => $p->price_minor / 100,
             'price_minor' => $p->price_minor,
+            'checkout_total_ksh' => $quote['total_minor'] / 100,
+            'checkout_tax_ksh' => $quote['tax_minor'] / 100,
+            'tax_inclusive' => $quote['tax_inclusive'],
             'duration_minutes' => $p->duration_minutes,
             'duration_display' => $this->formatDuration($p->duration_minutes),
             'access_type' => $p->access_type,
@@ -210,6 +258,7 @@ class CustomerDashboardController extends Controller
             'package_name' => $p->package_snapshot['name'] ?? 'Unknown',
             'created_at' => $p->created_at?->toIso8601String(),
             'completed_at' => $p->completed_at?->toIso8601String(),
+            'invoice_number' => $p->invoice_number,
             'payment' => $p->payments->isNotEmpty() ? $this->paymentResource($p->payments->first()) : null,
             'service_account' => $p->serviceAccount ? $this->serviceAccountResource($p->serviceAccount) : null,
         ];

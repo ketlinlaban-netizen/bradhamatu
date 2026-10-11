@@ -1,24 +1,33 @@
+import { useEffect, useState } from "react";
 import { ShieldCheck, Lock, Database, Server, Code, Wifi, CheckCircle2 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { apiGet } from "../services/api";
 
 export function SystemPage() {
   const { user } = useAuth();
+  const [provider, setProvider] = useState<"mock" | "mikrotik" | "rest" | "unavailable">("unavailable");
+
+  useEffect(() => {
+    apiGet<{ provider: "mock" | "mikrotik" | "rest" }>("/health")
+      .then((health) => setProvider(health.provider))
+      .catch(() => setProvider("unavailable"));
+  }, []);
 
   const architecture = [
-    { layer: "Frontend (React + Vite)", desc: "NOC dashboard — dark professional interface, responsive", icon: Wifi },
-    { layer: "API Layer (Laravel REST)", desc: "GET-only endpoints, no mutation routes exposed", icon: Server },
+    { layer: "Frontend (React + Vite)", desc: "NOC dashboard — responsive interface", icon: Wifi },
+    { layer: "API Layer (Laravel REST)", desc: "Sanctum-protected reads and super-admin inventory management", icon: Server },
     { layer: "RouterService", desc: "Business logic, delegates to provider via interface", icon: Code },
-    { layer: "RouterReadOnlyGuard", desc: "Classifies every operation as READ or WRITE, blocks WRITE", icon: ShieldCheck },
-    { layer: "MikroTikApiClient", desc: "Binary API protocol (TCP 8728/8729) with REST API fallback", icon: Database },
+    { layer: "RouterReadOnlyGuard", desc: "Allows only fixed read commands; rejects RouterOS writes", icon: ShieldCheck },
+    { layer: "RouterOS transport", desc: "Server-selected binary API or HTTPS REST; both use the same read-only contract", icon: Database },
   ];
 
   const securityPrinciples = [
-    { text: "100% read-only — no write endpoints exist in the API", status: "enforced" },
-    { text: "ReadOnlyGuard blocks WRITE operations at service layer", status: "enforced" },
+    { text: "RouterOS access is read-only; inventory changes affect Laravel records only", status: "enforced" },
+    { text: "ReadOnlyGuard and a fixed command allowlist block RouterOS writes", status: "enforced" },
     { text: "No reboot, shutdown, config, firewall, or queue modification", status: "enforced" },
     { text: "No terminal, command execution, or write API calls", status: "enforced" },
-    { text: "Live data from MikroTik binary API with REST fallback", status: "enforced" },
-    { text: "Role-based access (super_admin, admin, viewer) — all read-only", status: "enforced" },
+    { text: "Router credentials are encrypted at rest and masked in API responses", status: "enforced" },
+    { text: "Administrator authorization protects router inventory management", status: "enforced" },
   ];
 
   return (
@@ -72,22 +81,42 @@ export function SystemPage() {
       </div>
 
       <div className="card p-5">
-        <h2 className="text-lg font-semibold text-slate-100 mb-4">Data Flow (Live)</h2>
+        <h2 className="text-lg font-semibold text-slate-100 mb-4">Data Flow</h2>
         <div className="rounded-lg border border-noc-border p-4 bg-noc-panel">
           <div className="text-sm text-slate-300 font-mono space-y-1">
             <div>React Frontend</div>
-            <div className="text-slate-500">↓ HTTP GET (Bearer token)</div>
+            <div className="text-slate-500">↓ HTTP / Sanctum</div>
             <div>Laravel API (Sanctum auth)</div>
             <div className="text-slate-500">↓</div>
             <div>RouterService → ReadOnlyGuard</div>
             <div className="text-slate-500">↓</div>
-            <div className="text-noc-accent">MikroTikRouterProvider</div>
-            <div className="text-slate-500">↓ Binary API (TCP 8728/8729)</div>
-            <div className="text-noc-accent">MikroTik Router(s)</div>
+            <div className="text-noc-accent">
+              {provider === "mock"
+                ? "MockRouterProvider (demo only)"
+                : provider === "mikrotik"
+                  ? "MikroTikRouterProvider"
+                  : provider === "rest"
+                    ? "RouterRestProvider"
+                  : "Provider unavailable"}
+            </div>
+            {(provider === "mikrotik" || provider === "rest") && (
+              <>
+                <div className="text-slate-500">
+                  {provider === "rest" ? "↓ HTTPS REST (TLS verified)" : "↓ Binary API (TCP 8728/8729)"}
+                </div>
+                <div className="text-noc-accent">MikroTik Router(s)</div>
+              </>
+            )}
           </div>
         </div>
         <p className="text-xs text-slate-500 mt-4">
-          All data is live from MikroTik routers. No mock data. Binary API is primary, REST API is fallback.
+          {provider === "mock"
+            ? "Demo mode is active. Router information is fictional and no physical router is contacted."
+            : provider === "mikrotik"
+              ? "The live provider reads the Laravel router inventory and connects through the MikroTik binary API."
+              : provider === "rest"
+                ? "The live provider reads the Laravel router inventory through HTTPS REST with certificate validation."
+              : "Provider configuration is unavailable; the active data source could not be verified."}
         </p>
       </div>
 
@@ -121,9 +150,9 @@ export function SystemPage() {
             { label: "Language", value: "TypeScript" },
             { label: "Styling", value: "Tailwind CSS" },
             { label: "Charts", value: "Recharts" },
-            { label: "Backend", value: "Laravel 11" },
+            { label: "Backend", value: "Laravel 13" },
             { label: "Database", value: "MySQL / PostgreSQL" },
-            { label: "Router API", value: "MikroTik RouterOS" },
+            { label: "Router API", value: provider === "rest" ? "RouterOS HTTPS REST" : "RouterOS Binary API / REST" },
             { label: "Auth", value: "Laravel Sanctum" },
           ].map((t) => (
             <div key={t.label} className="rounded-lg border border-noc-border p-3 bg-noc-panel">

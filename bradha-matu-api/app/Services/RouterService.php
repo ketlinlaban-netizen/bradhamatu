@@ -59,6 +59,11 @@ class RouterService
         return $this->guarded('getClients', fn () => $this->provider->getClients($routerId));
     }
 
+    public function getDhcpLeases(string $routerId): array
+    {
+        return $this->guarded('getDhcpLeases', fn () => $this->provider->getDhcpLeases($routerId));
+    }
+
     public function getTraffic(string $routerId): ?array
     {
         return $this->guarded('getTraffic', fn () => $this->provider->getTraffic($routerId));

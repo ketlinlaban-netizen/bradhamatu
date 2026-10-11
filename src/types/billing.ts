@@ -15,6 +15,9 @@ export interface Package {
   description: string | null;
   price_ksh: number;
   price_minor: number;
+  checkout_total_ksh?: number;
+  checkout_tax_ksh?: number;
+  tax_inclusive?: boolean;
   duration_minutes: number;
   duration_display: string;
   access_type: string;
@@ -34,6 +37,7 @@ export interface Payment {
   failure_reason: string | null;
   initiated_at: string | null;
   completed_at: string | null;
+  invoice_number?: string | null;
 }
 
 export interface ServiceAccount {
@@ -50,6 +54,7 @@ export interface ServiceAccount {
 
 export interface Purchase {
   id: string;
+  invoice_number?: string | null;
   order_id: string;
   status: string;
   amount_ksh: number;

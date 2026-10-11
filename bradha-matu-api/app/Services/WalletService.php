@@ -14,11 +14,12 @@ class WalletService
     public function topUp(Customer $customer, int $amountMinor, ?string $description = null, ?Payment $payment = null): WalletTransaction
     {
         return DB::transaction(function () use ($customer, $amountMinor, $description, $payment) {
-            $customer = $customer->fresh()->lockForUpdate();
+            $customer = Customer::whereKey($customer->getKey())->lockForUpdate()->firstOrFail();
             $newBalance = $customer->balance_minor + $amountMinor;
             $customer->update(['balance_minor' => $newBalance]);
 
             return WalletTransaction::create([
+                'id' => Str::uuid()->toString(),
                 'id' => Str::uuid()->toString(),
                 'customer_id' => $customer->id,
                 'type' => 'topup',
@@ -33,7 +34,7 @@ class WalletService
     public function debit(Customer $customer, int $amountMinor, string $description, ?Purchase $purchase = null): WalletTransaction
     {
         return DB::transaction(function () use ($customer, $amountMinor, $description, $purchase) {
-            $customer = $customer->fresh()->lockForUpdate();
+            $customer = Customer::whereKey($customer->getKey())->lockForUpdate()->firstOrFail();
 
             if ($customer->balance_minor < $amountMinor) {
                 throw new \RuntimeException('Insufficient wallet balance');
@@ -43,6 +44,7 @@ class WalletService
             $customer->update(['balance_minor' => $newBalance]);
 
             return WalletTransaction::create([
+                'id' => Str::uuid()->toString(),
                 'id' => Str::uuid()->toString(),
                 'customer_id' => $customer->id,
                 'type' => 'purchase',
@@ -57,11 +59,12 @@ class WalletService
     public function refund(Customer $customer, int $amountMinor, string $description, ?Purchase $purchase = null): WalletTransaction
     {
         return DB::transaction(function () use ($customer, $amountMinor, $description, $purchase) {
-            $customer = $customer->fresh()->lockForUpdate();
+            $customer = Customer::whereKey($customer->getKey())->lockForUpdate()->firstOrFail();
             $newBalance = $customer->balance_minor + $amountMinor;
             $customer->update(['balance_minor' => $newBalance]);
 
             return WalletTransaction::create([
+                'id' => Str::uuid()->toString(),
                 'id' => Str::uuid()->toString(),
                 'customer_id' => $customer->id,
                 'type' => 'refund',

@@ -21,6 +21,9 @@
 | GET | `/api/auth/me` | `AuthContext` session restore | Admin Sanctum | `AuthController@me` | Admin profile |
 | GET | `/api/public/packages` | `getPublicPackages` | None | `PackageController@publicIndex` | Public packages |
 | POST | `/api/mpesa/callback` | Daraja provider | Provider callback validation | `PaymentCallbackController@mpesaCallback` | Payment state update |
+| GET | `/api/payment-webhooks/pesapal` | Pesapal IPN | Provider transaction-status verification | `PaymentCallbackController@pesapalIpn` | Payment state update |
+| POST | `/api/payment-webhooks/flutterwave` | Flutterwave webhook | Secret-hash validation and provider verification | `PaymentCallbackController@flutterwaveWebhook` | Payment state update |
+| POST | `/api/payment-webhooks/paystack` | Paystack webhook | HMAC validation and provider verification | `PaymentCallbackController@paystackWebhook` | Payment state update |
 
 ## Admin monitoring and configuration
 
@@ -55,16 +58,17 @@
 | POST | `/api/customer/logout` | `customerLogout` | Customer | `CustomerAuthController@logout` | Revoked token |
 | GET | `/api/customer/me` | `getCustomerProfile` | Customer | `CustomerAuthController@me` | Customer profile |
 | GET | `/api/customer/packages` | `getCustomerPackages` | Customer | `CustomerDashboardController@packages` | Available packages |
+| GET | `/api/customer/payment-methods` | `getCustomerPaymentMethods` | Customer | `CustomerDashboardController@paymentMethods` | Configured checkout options |
 | GET | `/api/customer/service-status` | `getServiceStatus` | Customer | `CustomerDashboardController@serviceStatus` | Active package and due date |
 | GET | `/api/customer/purchases` | `getPurchases` | Customer | `CustomerDashboardController@purchases` | Purchase history |
 | GET | `/api/customer/purchases/{id}` | Reserved for detail view | Customer | `CustomerDashboardController@purchaseDetail` | Purchase and receipt |
 | GET | `/api/customer/payments` | `getPayments` | Customer | `CustomerDashboardController@payments` | Payment history |
 | GET | `/api/customer/payments/{id}/status` | `getPaymentStatus` | Customer | `CustomerDashboardController@paymentStatus` | Current payment state |
-| POST | `/api/customer/purchase` | `initiatePurchase` | Customer | `CustomerDashboardController@initiatePurchase` | Server-priced purchase and STK push |
+| POST | `/api/customer/purchase` | `initiatePurchase` | Customer | `CustomerDashboardController@initiatePurchase` | Server-priced M-Pesa STK or hosted gateway checkout |
 | POST | `/api/customer/renew` | Available for renewal flows | Customer | `CustomerDashboardController@renew` | Renewal purchase |
 | GET | `/api/customer/support-tickets` | `getSupportTickets` | Customer | `CustomerDashboardController@supportTickets` | Own tickets |
 | POST | `/api/customer/support-tickets` | `createSupportTicket` | Customer | `CustomerDashboardController@createSupportTicket` | New ticket |
-| POST | `/api/customer/change-password` | `changePassword` | Customer | `CustomerPasswordController@changePassword` | Password changed and synced to router |
+| POST | `/api/customer/change-password` | `changePassword` | Customer | `CustomerPasswordController@changePassword` | Local and active subscriber password changed via private mTLS RADIUS API |
 | POST | `/api/customer/vouchers/redeem` | `redeemVoucher` | Customer | `VoucherController@redeem` | Voucher redeemed and plan activated |
 | GET | `/api/customer/wallet/balance` | `getWalletBalance` | Customer | `WalletController@balance` | Wallet balance and auto-renewal status |
 | POST | `/api/customer/wallet/topup` | `topUpWallet` | Customer | `WalletController@topUp` | Wallet top-up |

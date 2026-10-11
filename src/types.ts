@@ -29,19 +29,21 @@ export interface Router {
   serialNumber: string;
   routerosVersion: string;
   architecture: string;
+  uptimeSeconds?: number | null;
   status: RouterStatus;
   lastSeenAt: string;
+  lastErrorCategory?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface RouterStatusInfo {
   routerId: string;
-  cpuUsage: number;
-  memoryUsage: number;
-  storageUsage: number;
-  temperature: number;
-  uptimeSeconds: number;
+  cpuUsage: number | null;
+  memoryUsage: number | null;
+  storageUsage: number | null;
+  temperature: number | null;
+  uptimeSeconds: number | null;
   boardModel: string;
   architecture: string;
   routerosVersion: string;
@@ -50,7 +52,7 @@ export interface RouterStatusInfo {
   macAddresses: string[];
   ipAddresses: string[];
   lastCommunication: string;
-  connectionLatencyMs: number;
+  connectionLatencyMs: number | null;
 }
 
 export interface RouterInterface {
@@ -68,9 +70,13 @@ export interface RouterInterface {
 export interface RouterClient {
   id: string;
   routerId: string;
+  routerName?: string;
   interfaceId: string;
   interfaceName: string;
   hostname: string;
+  alias?: string | null;
+  displayName?: string;
+  aliasEditable?: boolean;
   ipAddress: string;
   macAddress: string;
   signal: number;
@@ -78,6 +84,9 @@ export interface RouterClient {
   txBytes: number;
   connectedAt: string;
   lastSeenAt: string;
+  firstSeenAt?: string;
+  status?: "online" | "offline" | "unknown";
+  offlineReason?: string | null;
 }
 
 export interface WirelessInfo {
@@ -114,10 +123,10 @@ export interface RouterTraffic {
 export interface RouterMetric {
   id: string;
   routerId: string;
-  cpuUsage: number;
-  memoryUsage: number;
-  storageUsage: number;
-  temperature: number;
+  cpuUsage: number | null;
+  memoryUsage: number | null;
+  storageUsage: number | null;
+  temperature: number | null;
   rxRate: number;
   txRate: number;
   recordedAt: string;
@@ -132,6 +141,7 @@ export interface DashboardSummary {
   totalClients: number;
   totalTrafficBytes: number;
   uptimePercent: number;
+  dataSource?: "mock" | "live";
 }
 
 export interface Incident {
@@ -171,6 +181,9 @@ export interface MikroTikConfig {
   isConnected: boolean;
   lastSeenAt: string | null;
   createdAt: string;
+  monitoringEnabled?: boolean;
+  lastRouterosVersion?: string | null;
+  lastErrorCategory?: string | null;
 }
 
 export interface MikroTikConnectResult {
@@ -178,22 +191,24 @@ export interface MikroTikConnectResult {
   state: "established" | "failed";
   message: string;
   readOnly: boolean;
+  category?: string | null;
+  elapsedMs?: number | null;
   router: {
     id: string;
     name: string;
     identity: string;
     host: string;
-    model: string;
-    serialNumber: string;
-    routerosVersion: string;
-    architecture: string;
-    cpuLoad: number;
-    uptime: string;
-    totalMemory: number;
-    freeMemory: number;
-    totalHdd: number;
-    freeHdd: number;
-    cpuCount: number;
-    platform: string;
+    model: string | null;
+    serialNumber: string | null;
+    routerosVersion: string | null;
+    architecture: string | null;
+    cpuLoad: number | null;
+    uptime: string | null;
+    totalMemory: number | null;
+    freeMemory: number | null;
+    totalHdd: number | null;
+    freeHdd: number | null;
+    cpuCount: number | null;
+    platform: string | null;
   } | null;
 }

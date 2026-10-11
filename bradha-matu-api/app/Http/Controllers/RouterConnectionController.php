@@ -6,12 +6,11 @@ use App\Services\RouterService;
 use Illuminate\Http\JsonResponse;
 
 /**
- * RouterConnectionController — simulates a read-only session establishment.
+ * RouterConnectionController — performs a one-shot read-only connectivity test.
  * GET /api/routers/{router}/connect
  *
- * This is NOT a mutation. It probes the router's REST API to verify
- * connectivity and returns a read-only session descriptor. No
- * configuration changes are made.
+ * The provider opens a short-lived native binary API connection and
+ * verifies that identity and system resource reads succeed.
  */
 class RouterConnectionController extends Controller
 {

@@ -6,7 +6,7 @@ return [
 
     'default_group' => env('RADIUS_DEFAULT_GROUP', 'bm-default'),
 
-    'nas_secret' => env('RADIUS_NAS_SECRET', 'bradha-matu-radius-secret'),
+    'nas_secret' => env('RADIUS_NAS_SECRET'),
 
     'nas_type' => env('RADIUS_NAS_TYPE', 'mikrotik'),
 

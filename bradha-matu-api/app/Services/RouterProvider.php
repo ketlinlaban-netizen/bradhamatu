@@ -19,6 +19,8 @@ interface RouterProvider
 
     public function getClients(string $routerId): array;
 
+    public function getDhcpLeases(string $routerId): array;
+
     public function getTraffic(string $routerId): ?array;
 
     public function getWireless(string $routerId): ?array;

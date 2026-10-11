@@ -1,39 +1,48 @@
-import { useEffect, useState } from "react";
-import { Download, Router as RouterIcon, Users, Activity, TrendingUp } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Download, Router as RouterIcon, Users, Activity, TrendingUp, RefreshCw } from "lucide-react";
 import { routerService } from "../services/RouterService";
 import type { DashboardSummary, Router, Incident } from "../types";
 import { formatBytes, formatNumber, timeAgo } from "../utils/format";
-import { LoadingSpinner } from "../components/ui";
 
 export function ReportsPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [routers, setRouters] = useState<Router[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    Promise.all([
-      routerService.getDashboardSummary(),
-      routerService.getRouters(),
-      routerService.getIncidents(),
-    ]).then(([s, r, i]) => {
+  const loadReport = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [s, r, i] = await Promise.all([
+        routerService.getDashboardSummary(),
+        routerService.getRouters(),
+        routerService.getIncidents(),
+      ]);
       setSummary(s);
       setRouters(r);
       setIncidents(i);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load report data.");
+    } finally {
       setLoading(false);
-    });
+    }
   }, []);
 
-  if (loading) return <LoadingSpinner label="Generating reports..." />;
+  useEffect(() => {
+    void loadReport();
+  }, [loadReport]);
 
   const reportCards = [
-    { title: "Network Summary", desc: "Overview of all routers, clients, and traffic", icon: TrendingUp, data: `Routers: ${summary?.totalRouters} | Online: ${summary?.online} | Offline: ${summary?.offline} | Clients: ${formatNumber(summary?.totalClients ?? 0)}` },
-    { title: "Router Inventory", desc: "Full list of all routers with details", icon: RouterIcon, data: `${routers.length} routers across ${new Set(routers.map((r) => r.location)).size} locations` },
-    { title: "Incident Log", desc: "All active and recent incidents", icon: Activity, data: `${incidents.length} incidents (${incidents.filter((i) => !i.resolvedAt).length} active)` },
-    { title: "Client Census", desc: "Total connected clients network-wide", icon: Users, data: `${formatNumber(summary?.totalClients ?? 0)} clients connected` },
+    { title: "Network Summary", desc: "Overview of all routers, clients, and traffic", icon: TrendingUp, data: error ? "Unavailable" : summary ? `Routers: ${summary.totalRouters} | Online: ${summary.online} | Offline: ${summary.offline} | Clients: ${formatNumber(summary.totalClients)}` : "Loading…" },
+    { title: "Router Inventory", desc: "Full list of all routers with details", icon: RouterIcon, data: error ? "Unavailable" : `${routers.length} routers across ${new Set(routers.map((r) => r.location)).size} locations` },
+    { title: "Incident Log", desc: "All active and recent incidents", icon: Activity, data: error ? "Unavailable" : `${incidents.length} incidents (${incidents.filter((i) => !i.resolvedAt).length} active)` },
+    { title: "Client Census", desc: "Total connected clients network-wide", icon: Users, data: error ? "Unavailable" : summary ? `${formatNumber(summary.totalClients)} clients connected` : "Loading…" },
   ];
 
   const handleExport = () => {
+    const csv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines: string[] = [];
     lines.push("COMMUNITY WIFI BRADHA MATU — NETWORK REPORT");
     lines.push(`Generated: ${new Date().toISOString()}`);
@@ -48,23 +57,23 @@ export function ReportsPage() {
     lines.push(`Uptime: ${summary?.uptimePercent}%`);
     lines.push("");
     lines.push("=== ROUTERS ===");
-    lines.push("Name,Location,IP,Status,Model,RouterOS,LastSeen");
+    lines.push(["Name", "Location", "IP", "Status", "Model", "RouterOS", "LastSeen"].map(csv).join(","));
     for (const r of routers) {
-      lines.push(`${r.name},${r.location},${r.ipAddress},${r.status},${r.model},${r.routerosVersion},${r.lastSeenAt}`);
+      lines.push([r.name, r.location, r.ipAddress, r.status, r.model, r.routerosVersion, r.lastSeenAt].map(csv).join(","));
     }
     lines.push("");
     lines.push("=== INCIDENTS ===");
-    lines.push("Router,Type,Severity,Message,Started");
+    lines.push(["Router", "Type", "Severity", "Message", "Started"].map(csv).join(","));
     for (const i of incidents) {
-      lines.push(`${i.routerName},${i.type},${i.severity},${i.message},${i.startedAt}`);
+      lines.push([i.routerName, i.type, i.severity, i.message, i.startedAt].map(csv).join(","));
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `bradha-matu-report-${Date.now()}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return (
@@ -73,12 +82,21 @@ export function ReportsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-100">Reports</h1>
           <p className="text-sm text-slate-400 mt-1">Read-only network reports and exportable summaries.</p>
+          {loading && <p className="mt-1 text-xs text-slate-500">Refreshing report data…</p>}
         </div>
-        <button onClick={handleExport} className="btn-primary flex items-center gap-2 text-sm">
+        <button onClick={handleExport} disabled={loading || Boolean(error)} className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50">
           <Download className="w-4 h-4" />
           Export CSV Report
         </button>
       </div>
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span>Report data is unavailable: {error}</span>
+          <button type="button" onClick={() => void loadReport()} className="btn-secondary flex items-center gap-2 !px-3 !py-1.5" disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Retry
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {reportCards.map((card) => {

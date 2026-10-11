@@ -15,19 +15,21 @@ import {
   Network,
   EyeOff,
   Eye,
+  RefreshCw,
   ShieldCheck,
   Wifi,
 } from "lucide-react";
+import { useAuth } from "../auth/AuthContext";
 import { apiGet, apiPost, apiDelete } from "../services/api";
 import type { MikroTikConfig, MikroTikConnectResult } from "../types";
 import { LoadingSpinner, EmptyState } from "../components/ui";
+import { MikroTikTerminalScriptGenerator } from "../components/MikroTikTerminalScriptGenerator";
 
 type AddForm = {
   name: string;
   host: string;
   apiPort: string;
   useTls: boolean;
-  verifyCert: boolean;
   username: string;
   password: string;
   location: string;
@@ -39,7 +41,6 @@ const EMPTY_FORM: AddForm = {
   host: "",
   apiPort: "8729",
   useTls: true,
-  verifyCert: true,
   username: "monitoring",
   password: "",
   location: "",
@@ -47,8 +48,14 @@ const EMPTY_FORM: AddForm = {
 };
 
 export function MikroTikConfigPage() {
+  const { user } = useAuth();
+  const canManageRouters = user?.role === "super_admin";
   const [configs, setConfigs] = useState<MikroTikConfig[]>([]);
+  const [provider, setProvider] = useState<"mock" | "mikrotik" | "rest" | "unavailable">("unavailable");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [providerLoading, setProviderLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<AddForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -58,33 +65,68 @@ export function MikroTikConfigPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
-  const loadConfigs = useCallback(async () => {
-    setLoading(true);
+  const loadConfigs = useCallback(async (initial = false) => {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
+    setLoadError(null);
     try {
       const data = await apiGet<MikroTikConfig[]>("/mikrotik-configs");
       setConfigs(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load configurations");
+      setLoadError(err instanceof Error ? err.message : "Failed to load configurations");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    loadConfigs();
+    void loadConfigs(true);
   }, [loadConfigs]);
+
+  const loadProvider = useCallback(async () => {
+    setProviderLoading(true);
+    try {
+      const health = await apiGet<{ provider: "mock" | "mikrotik" | "rest" }>("/health");
+      setProvider(health.provider);
+    } catch {
+      setProvider("unavailable");
+    } finally {
+      setProviderLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProvider();
+  }, [loadProvider]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (provider === "unavailable") {
+      setError("The active router provider could not be verified. Retry the provider check before saving transport settings.");
+      return;
+    }
+    if (provider !== "rest" && (
+      !/^\d{1,5}$/.test(form.apiPort) ||
+      Number(form.apiPort) < 1 ||
+      Number(form.apiPort) > 65535 ||
+      (Number(form.apiPort) === 8728 && form.useTls) ||
+      (Number(form.apiPort) === 8729 && !form.useTls)
+    )) {
+      setError("Use plain Binary API on port 8728 or API-SSL on port 8729. A custom port must be explicitly configured and approved on the server.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       await apiPost("/mikrotik-configs", {
         name: form.name,
         host: form.host,
-        apiPort: parseInt(form.apiPort, 10) || 8728,
-        useTls: form.useTls,
-        verifyCert: form.verifyCert,
+        ...(provider !== "rest" ? {
+          apiPort: Number(form.apiPort),
+          useTls: form.useTls,
+          verifyCert: true,
+        } : {}),
         username: form.username,
         password: form.password,
         location: form.location || null,
@@ -155,16 +197,80 @@ export function MikroTikConfigPage() {
           <p className="text-sm text-slate-400 mt-1">
             Add router credentials to connect and load live data. Passwords are masked once saved — you can delete and re-add, but never view them.
           </p>
+          {provider === "rest" && (
+            <p className="text-xs text-blue-300 mt-2">
+              Server-selected HTTPS REST is active. The endpoint port and TLS verification are managed by the server and cannot be selected here.
+            </p>
+          )}
         </div>
-        {!showForm && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowForm(true)}
-            className="btn-primary flex items-center gap-2 text-sm"
+            type="button"
+            onClick={() => void loadConfigs()}
+            disabled={refreshing}
+            className="btn-secondary flex items-center gap-2 text-sm"
           >
-            <Plus className="w-4 h-4" />
-            Add Router
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
           </button>
-        )}
+          {!showForm && canManageRouters && (
+            <button
+              onClick={() => setShowForm(true)}
+              disabled={providerLoading || provider === "unavailable"}
+              className="btn-primary flex items-center gap-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              title={provider === "unavailable" ? "Verify the active router provider before adding a router." : undefined}
+            >
+              <Plus className="w-4 h-4" />
+              Add Router
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div
+        className={`card p-4 border ${
+          provider === "mock" ? "border-amber-500/30 bg-amber-500/5" :
+          provider === "unavailable" ? "border-red-500/30 bg-red-500/5" :
+          "border-blue-500/20 bg-blue-500/5"
+        }`}
+        role="status"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm">
+            {provider === "mock" ? (
+              <>
+                <span className="font-medium text-amber-300">Mock provider active.</span>
+                <span className="ml-2 text-slate-300">Monitoring values may be simulated; router connection tests are disabled and do not establish live connectivity.</span>
+              </>
+            ) : provider === "mikrotik" ? (
+              <>
+                <span className="font-medium text-blue-300">Live Binary API provider active.</span>
+                <span className="ml-2 text-slate-300">Connection tests use the configured read-only RouterOS transport.</span>
+              </>
+            ) : provider === "rest" ? (
+              <>
+                <span className="font-medium text-blue-300">Live HTTPS REST provider active.</span>
+                <span className="ml-2 text-slate-300">Transport settings and certificate verification are managed by the server.</span>
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-red-300">Router provider unavailable.</span>
+                <span className="ml-2 text-slate-300">The active transport could not be confirmed; adding and testing routers are disabled.</span>
+              </>
+            )}
+          </div>
+          {(providerLoading || provider === "unavailable") && (
+            <button
+              type="button"
+              onClick={() => void loadProvider()}
+              disabled={providerLoading}
+              className="btn-secondary flex items-center gap-2 text-xs"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${providerLoading ? "animate-spin" : ""}`} />
+              {providerLoading ? "Checking..." : "Retry provider check"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Read-only notice */}
@@ -174,7 +280,7 @@ export function MikroTikConfigPage() {
           <div className="text-sm">
             <span className="text-green-400 font-medium">READ-ONLY:</span>
             <span className="text-slate-300 ml-2">
-              Connections only fetch system information. No configuration changes, reboots, or commands are sent to the router.
+              Connection tests issue only fixed read queries. Super administrators may separately generate a local setup script; this app never executes or uploads that script to a router.
             </span>
           </div>
         </div>
@@ -193,10 +299,11 @@ export function MikroTikConfigPage() {
       )}
 
       {/* Add form */}
-      {showForm && (
+      {showForm && canManageRouters && (
         <AddConfigForm
           form={form}
           setForm={setForm}
+          restMode={provider === "rest"}
           onSave={handleAdd}
           onCancel={() => { setShowForm(false); setForm(EMPTY_FORM); setShowPassword(false); }}
           saving={saving}
@@ -206,7 +313,21 @@ export function MikroTikConfigPage() {
       )}
 
       {/* Config list */}
-      {configs.length === 0 && !showForm ? (
+      {loadError ? (
+        <div className="card p-5 border border-red-500/30 bg-red-500/5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-red-300">Router configurations could not be loaded</h2>
+              <p className="mt-1 text-xs text-slate-400">{loadError}</p>
+              <p className="mt-1 text-xs text-slate-500">This is not the same as an empty router list. Retry to verify the saved configurations.</p>
+            </div>
+            <button type="button" onClick={() => void loadConfigs()} disabled={refreshing} className="btn-secondary flex items-center gap-2 text-sm">
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : configs.length === 0 && !showForm ? (
         <div className="card">
           <EmptyState message="No MikroTik routers configured yet. Click 'Add Router' to add your first router credentials." />
         </div>
@@ -216,6 +337,10 @@ export function MikroTikConfigPage() {
             <ConfigCard
               key={cfg.id}
               config={cfg}
+              restMode={provider === "rest"}
+              mockMode={provider === "mock"}
+              providerAvailable={provider === "mikrotik" || provider === "rest"}
+              canManageRouters={canManageRouters}
               connecting={connectingIds.has(cfg.id)}
               connectResult={connectResults[cfg.id] ?? null}
               onConnect={() => handleConnect(cfg.id)}
@@ -227,6 +352,11 @@ export function MikroTikConfigPage() {
           ))}
         </div>
       )}
+
+      {user?.role === "super_admin" && (
+        <MikroTikTerminalScriptGenerator authorized />
+      )}
+
     </div>
   );
 }
@@ -236,6 +366,7 @@ export function MikroTikConfigPage() {
 function AddConfigForm({
   form,
   setForm,
+  restMode,
   onSave,
   onCancel,
   saving,
@@ -244,6 +375,7 @@ function AddConfigForm({
 }: {
   form: AddForm;
   setForm: React.Dispatch<React.SetStateAction<AddForm>>;
+  restMode: boolean;
   onSave: (e: React.FormEvent) => void;
   onCancel: () => void;
   saving: boolean;
@@ -280,57 +412,63 @@ function AddConfigForm({
           />
         </FormField>
 
-        <FormField label="API Port">
-          <input
-            type="number"
-            value={form.apiPort}
-            onChange={(e) => setForm({ ...form, apiPort: e.target.value })}
-            className="input-field"
-          />
-        </FormField>
+        {restMode ? (
+          <div className="md:col-span-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-200">
+            HTTPS REST uses the server-approved port with certificate-chain and hostname verification enforced. Router destination and transport policy are validated by the backend.
+          </div>
+        ) : (
+          <>
+            <FormField label="Binary API Port">
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={form.apiPort}
+                onChange={(e) => setForm({ ...form, apiPort: e.target.value })}
+                className="input-field"
+              />
+              <span className="mt-1 block text-[11px] text-slate-500">
+                8728 = plain Binary API; 8729 = TLS-protected API-SSL. The saved port is the actual service port.
+              </span>
+            </FormField>
 
-        <FormField label="Use TLS (API-SSL)">
-          <label className="flex items-center gap-2 mt-2">
-            <input
-              type="checkbox"
-              checked={form.useTls}
-              onChange={(e) => {
-                const useTls = e.target.checked;
-                const defaultPort = useTls ? "8728" : "8729";
-                const tlsPort = useTls ? "8729" : "8728";
-                setForm({
-                  ...form,
-                  useTls,
-                  apiPort: form.apiPort === defaultPort ? tlsPort : form.apiPort,
-                });
-              }}
-              className="w-4 h-4 rounded border-noc-border bg-noc-panel"
-            />
-            <span className="text-sm text-slate-300">Enable TLS encryption for binary API (default port 8729)</span>
-          </label>
-        </FormField>
+            <FormField label="Use TLS (API-SSL)">
+              <label className="flex items-center gap-2 mt-2">
+                <input
+                  type="checkbox"
+                  checked={form.useTls}
+                  onChange={(e) => {
+                    const useTls = e.target.checked;
+                    const defaultPort = useTls ? "8728" : "8729";
+                    const tlsPort = useTls ? "8729" : "8728";
+                    setForm({
+                      ...form,
+                      useTls,
+                      apiPort: form.apiPort === defaultPort ? tlsPort : form.apiPort,
+                    });
+                  }}
+                  className="w-4 h-4 rounded border-noc-border bg-noc-panel"
+                />
+                <span className="text-sm text-slate-300">Use TLS with API-SSL (normally port 8729)</span>
+              </label>
+            </FormField>
 
-        <FormField label="Verify TLS/HTTPS certificate">
-          <label className="flex items-center gap-2 mt-2">
-            <input
-              type="checkbox"
-              checked={form.verifyCert}
-              onChange={(e) => setForm({ ...form, verifyCert: e.target.checked })}
-              className="w-4 h-4 rounded border-noc-border bg-noc-panel"
-            />
-            <span className="text-sm text-slate-300">Verify the router certificate (recommended)</span>
-          </label>
-          {!form.verifyCert && (
-            <p className="mt-1 text-xs text-amber-400">
-              Certificate verification is disabled for API-SSL and the REST HTTPS fallback. Use only on a trusted network or with a self-signed certificate.
-            </p>
-          )}
-        </FormField>
+            {((form.useTls && Number(form.apiPort) === 8728) || (!form.useTls && Number(form.apiPort) === 8729)) && (
+              <p className="md:col-span-2 text-xs text-amber-300" role="alert">
+                The selected port and TLS mode conflict. Use 8728 without TLS or 8729 with TLS, unless the router has a verified custom port.
+              </p>
+            )}
 
-        {!form.useTls && (
-          <p className="md:col-span-2 text-xs text-amber-400">
-            The binary API login sends credentials in plaintext when TLS is disabled. Prefer API-SSL on port 8729.
-          </p>
+            {!form.useTls && (
+              <p className="md:col-span-2 text-xs text-amber-400">
+                The binary API login sends credentials in plaintext when TLS is disabled. Prefer API-SSL on port 8729.
+              </p>
+            )}
+
+            <div className="md:col-span-2 text-xs text-green-300">
+              API-SSL/HTTPS certificate verification is enforced by the backend and cannot be disabled.
+            </div>
+          </>
         )}
 
         <FormField label="Username" required>
@@ -419,6 +557,10 @@ function FormField({ label, required, children }: { label: string; required?: bo
 
 function ConfigCard({
   config,
+  restMode,
+  mockMode,
+  providerAvailable,
+  canManageRouters,
   connecting,
   connectResult,
   onConnect,
@@ -428,6 +570,10 @@ function ConfigCard({
   cancelDelete,
 }: {
   config: MikroTikConfig;
+  restMode: boolean;
+  mockMode: boolean;
+  providerAvailable: boolean;
+  canManageRouters: boolean;
   connecting: boolean;
   connectResult: MikroTikConnectResult | null;
   onConnect: () => void;
@@ -449,26 +595,46 @@ function ConfigCard({
               <h3 className="text-lg font-semibold text-slate-100">{config.name}</h3>
               {config.isConnected ? (
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-400">
-                  <span className="status-dot bg-green-500 animate-pulse-slow" />
-                  Connected
+                  <span className="status-dot bg-green-500" />
+                  Last observed online
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
                   <span className="status-dot bg-slate-600" />
-                  Not connected
+                  No online observation
                 </span>
               )}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-sm text-slate-400 font-mono">
               <span>{config.host}</span>
-              <span>:{config.apiPort}</span>
-              {config.useTls && <span className="text-blue-400">TLS</span>}
+              {restMode ? (
+                <span className="text-blue-400">HTTPS REST · server port</span>
+              ) : (
+                <>
+                  <span>:{config.apiPort}</span>
+                  {config.useTls && <span className="text-blue-400">API-SSL</span>}
+                </>
+              )}
               <span>@{config.username}</span>
             </div>
             {config.location && (
               <div className="text-xs text-slate-500 mt-1">
                 {config.location}{config.site ? `, ${config.site}` : ""}
               </div>
+            )}
+            {config.lastSeenAt && (
+              <div className="text-xs text-slate-500 mt-1">
+                Last successful observation: {new Date(config.lastSeenAt).toLocaleString()}
+              </div>
+            )}
+            {config.lastRouterosVersion && (
+              <div className="text-xs text-slate-500 mt-1">RouterOS {config.lastRouterosVersion}</div>
+            )}
+            {config.lastErrorCategory && (
+              <div className="text-xs text-amber-300 mt-1">Last recorded error: {config.lastErrorCategory}</div>
+            )}
+            {config.monitoringEnabled === false && (
+              <div className="text-xs text-amber-300 mt-1">Monitoring is disabled for this router.</div>
             )}
           </div>
         </div>
@@ -481,7 +647,7 @@ function ConfigCard({
           </div>
 
           {/* Delete button or confirmation */}
-          {deleteConfirm ? (
+          {!canManageRouters ? null : deleteConfirm ? (
             <div className="flex items-center gap-2">
               <button
                 onClick={confirmDelete}
@@ -519,7 +685,17 @@ function ConfigCard({
             </div>
           </div>
         ) : connectResult ? (
-          <ConnectResultDisplay result={connectResult} onReconnect={onConnect} />
+          <ConnectResultDisplay result={connectResult} config={config} restMode={restMode} onReconnect={onConnect} />
+        ) : !canManageRouters ? (
+          <div className="text-xs text-slate-400">
+            Ask a super administrator to run the router connection test.
+          </div>
+        ) : mockMode || !providerAvailable ? (
+          <div className="text-xs text-slate-400">
+            {mockMode
+              ? "Connection test unavailable in mock mode. No live-router status is implied."
+              : "Connection test unavailable until the live router provider is confirmed."}
+          </div>
         ) : (
           <button
             onClick={onConnect}
@@ -536,7 +712,17 @@ function ConfigCard({
 
 // ── Connect Result Display ───────────────────────────────────────
 
-function ConnectResultDisplay({ result, onReconnect }: { result: MikroTikConnectResult; onReconnect: () => void }) {
+function ConnectResultDisplay({
+  result,
+  config,
+  restMode,
+  onReconnect,
+}: {
+  result: MikroTikConnectResult;
+  config: MikroTikConfig;
+  restMode: boolean;
+  onReconnect: () => void;
+}) {
   if (!result.success || !result.router) {
     return (
       <div className="space-y-3">
@@ -545,6 +731,22 @@ function ConnectResultDisplay({ result, onReconnect }: { result: MikroTikConnect
           <div className="flex-1">
             <div className="text-sm font-medium text-red-400">Connection Failed</div>
             <div className="text-xs text-slate-400 mt-1 font-mono break-all">{result.message}</div>
+            <div className="mt-3 rounded-lg border border-noc-border bg-noc-panel/50 p-3 text-xs text-slate-400">
+              <div className="font-medium text-slate-300">Safe diagnosis — check from the machine running Laravel</div>
+              <p className="mt-1">
+                Current saved target: {config.host}{restMode ? " · server-selected REST over HTTPS" : `:${config.apiPort} · ${config.useTls ? "Binary API-SSL" : "plain Binary API"}`}.
+              </p>
+              {result.category && <p className="mt-1">Failure category: {result.category}</p>}
+              <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                <li>Router reachability and the private route/VPN between Laravel and the management network.</li>
+                <li>Saved port and TLS pairing: plain API is normally 8728; API-SSL is normally 8729.</li>
+                <li>RouterOS API/API-SSL service is enabled and listening on the configured port.</li>
+                <li>Dedicated account, password, and read/API permissions are correct.</li>
+                <li>Router service address restrictions and router/firewall rules allow only this server's approved source.</li>
+                <li>Timeouts may indicate an unreachable endpoint or blocked route; changing the port alone does not establish connectivity.</li>
+              </ul>
+              <p className="mt-2">Do not expose management ports publicly or disable TLS verification to troubleshoot.</p>
+            </div>
           </div>
           <button onClick={onReconnect} className="btn-secondary text-xs flex items-center gap-1.5">
             <Loader2 className="w-3 h-3" />
@@ -556,8 +758,10 @@ function ConnectResultDisplay({ result, onReconnect }: { result: MikroTikConnect
   }
 
   const r = result.router;
-  const memUsage = r.totalMemory > 0 ? Math.round(((r.totalMemory - r.freeMemory) / r.totalMemory) * 100) : 0;
-  const hddUsage = r.totalHdd > 0 ? Math.round(((r.totalHdd - r.freeHdd) / r.totalHdd) * 100) : 0;
+  const formatUsage = (total: number | null, free: number | null) =>
+    total !== null && total > 0 && free !== null
+      ? `${Math.round(((total - free) / total) * 100)}%`
+      : "—";
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -582,12 +786,12 @@ function ConnectResultDisplay({ result, onReconnect }: { result: MikroTikConnect
 
       {/* Live system data */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <LiveMetric icon={Cpu} label="CPU Load" value={`${r.cpuLoad}%`} color="text-blue-400" />
-        <LiveMetric icon={MemoryStick} label="Memory" value={`${memUsage}%`} color="text-cyan-400" />
-        <LiveMetric icon={HardDrive} label="Storage" value={`${hddUsage}%`} color="text-amber-400" />
-        <LiveMetric icon={Clock} label="Uptime" value={r.uptime} color="text-emerald-400" />
-        <LiveMetric icon={CircuitBoard} label="CPU Count" value={String(r.cpuCount)} color="text-slate-300" />
-        <LiveMetric icon={Network} label="Platform" value={r.platform} color="text-slate-300" />
+        <LiveMetric icon={Cpu} label="CPU Load" value={r.cpuLoad === null ? "—" : `${r.cpuLoad}%`} color="text-blue-400" />
+        <LiveMetric icon={MemoryStick} label="Memory" value={formatUsage(r.totalMemory, r.freeMemory)} color="text-cyan-400" />
+        <LiveMetric icon={HardDrive} label="Storage" value={formatUsage(r.totalHdd, r.freeHdd)} color="text-amber-400" />
+        <LiveMetric icon={Clock} label="Uptime" value={r.uptime ?? "—"} color="text-emerald-400" />
+        <LiveMetric icon={CircuitBoard} label="CPU Count" value={r.cpuCount === null ? "—" : String(r.cpuCount)} color="text-slate-300" />
+        <LiveMetric icon={Network} label="Platform" value={r.platform ?? "—"} color="text-slate-300" />
       </div>
 
       {/* System info */}
@@ -613,12 +817,12 @@ function LiveMetric({ icon: Icon, label, value, color }: { icon: typeof Cpu; lab
   );
 }
 
-function InfoLine({ icon: Icon, label, value }: { icon: typeof Cpu; label: string; value: string }) {
+function InfoLine({ icon: Icon, label, value }: { icon: typeof Cpu; label: string; value: string | null }) {
   return (
     <div className="flex items-center gap-2.5 py-1 border-b border-noc-border/30">
       <Icon className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
       <span className="text-slate-400 text-xs w-32 flex-shrink-0">{label}</span>
-      <span className="text-slate-200 font-mono text-xs">{value}</span>
+      <span className="text-slate-200 font-mono text-xs">{value || "—"}</span>
     </div>
   );
 }

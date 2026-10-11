@@ -16,10 +16,6 @@ use Illuminate\Support\Facades\Log;
 
 class RadiusService
 {
-    public function __construct(
-        private HotspotUserManager $hotspotManager,
-    ) {}
-
     public function isEnabled(): bool
     {
         return config('radius.enabled', false);
@@ -35,6 +31,9 @@ class RadiusService
     public function registerNas(Router $router, ?string $secret = null): Nas
     {
         $secret = $secret ?? config('radius.nas_secret');
+        if (! is_string($secret) || strlen($secret) < 8) {
+            throw new \RuntimeException('Configure a RADIUS NAS secret of at least 8 characters before registering NAS clients.');
+        }
 
         return Nas::updateOrCreate(
             ['nasname' => $router->ip_address],

@@ -229,7 +229,7 @@ export function RadiusPage() {
                         <td className="px-5 py-3 font-mono text-slate-200">{n.nasname}</td>
                         <td className="px-5 py-3 text-slate-300">{n.shortname ?? "—"}</td>
                         <td className="px-5 py-3 text-slate-400">{n.type}</td>
-                        <td className="px-5 py-3 font-mono text-xs text-slate-500">{n.secret?.slice(0, 4)}••••</td>
+                        <td className="px-5 py-3 font-mono text-xs text-slate-500">••••••••</td>
                         <td className="px-5 py-3 text-slate-400">{n.router?.name ?? "—"}</td>
                         <td className="px-5 py-3">
                           {deleteConfirm === n.id ? (

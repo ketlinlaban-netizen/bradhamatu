@@ -18,7 +18,7 @@ export function LoginPage() {
     const result = await login(email, password);
     setLoading(false);
     if (result.success) {
-      navigate("/");
+      navigate("/admin");
     } else {
       setError(result.error ?? "Login failed");
     }

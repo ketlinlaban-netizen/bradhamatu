@@ -6,22 +6,21 @@ use App\Models\AuditLog;
 use App\Models\Purchase;
 use App\Models\ServiceAccount;
 use App\Models\Router;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * ActivationService — orchestrates hotspot provisioning after verified payment.
+ * ActivationService — orchestrates subscriber provisioning after verified payment.
  *
- * Separate from read-only monitoring. Uses HotspotUserManager with dedicated
- * billing credentials. Idempotent — duplicate activation calls are safe.
+ * Subscriber write operations are sent only to the private mTLS-protected
+ * FreeRADIUS provisioning API. RouterOS monitoring remains read-only.
  *
  * Workflow:
  * 1. Acquire idempotency lock (DB transaction on service_accounts)
  * 2. Re-check payment success and package eligibility
  * 3. Resolve authorized router
- * 4. Create/update hotspot user via provisioning adapter
+ * 4. Submit the server-selected NAS subscriber to the private RADIUS API
  * 5. Apply server-validated rate limits and expiry
  * 6. Store access identifier and expiry
  * 7. Record audit event
@@ -31,8 +30,7 @@ use Illuminate\Support\Str;
 class ActivationService
 {
     public function __construct(
-        private HotspotUserManager $hotspotManager,
-        private ?RadiusService $radiusService = null,
+        private RadiusProvisioningClient $radiusProvisioning,
     ) {}
 
     /**
@@ -41,7 +39,7 @@ class ActivationService
     public function activate(Purchase $purchase): ServiceAccount
     {
         return DB::transaction(function () use ($purchase) {
-            $purchase = $purchase->fresh()->lockForUpdate();
+            $purchase = Purchase::whereKey($purchase->getKey())->lockForUpdate()->firstOrFail();
 
             // Re-check payment success
             $verifiedPayment = $purchase->payments()
@@ -55,172 +53,103 @@ class ActivationService
 
             // Check for existing service account (idempotency)
             $existing = ServiceAccount::where('purchase_id', $purchase->id)->first();
-            if ($existing && $existing->activation_status === ServiceAccount::STATUS_ACTIVE) {
+            if (
+                $existing
+                && $existing->activation_status === ServiceAccount::STATUS_ACTIVE
+                && $existing->expires_at?->isFuture()
+            ) {
+                return $existing;
+            }
+            if (
+                $existing
+                && $existing->activation_status === ServiceAccount::STATUS_PENDING
+                && ! $this->radiusProvisioning->isConfigured()
+            ) {
                 return $existing;
             }
 
             $snapshot = $purchase->package_snapshot;
             $customer = $purchase->customer;
 
-            // Resolve router
-            $router = $this->resolveRouter($snapshot['router_id'] ?? null);
+            $router = $this->resolveRouter($snapshot['router_id'] ?? $existing?->router_id);
             if (! $router) {
-                $serviceAccount = $this->createFailedServiceAccount($purchase, 'No router available for activation');
+                $serviceAccount = $this->createFailedServiceAccount($purchase, 'No authorized NAS is available for subscriber provisioning.');
 
                 AuditLog::record('system', null, 'activation_failed_no_router', 'purchase', $purchase->id, []);
 
                 return $serviceAccount;
             }
 
-            // Generate credentials
-            $username = 'bm-' . Str::lower(Str::random(8));
-            $password = Str::random(12);
-            $profileName = "bm-{$snapshot['download_limit_kbps']}-{$snapshot['upload_limit_kbps']}-{$snapshot['duration_minutes']}";
+            $durationMinutes = (int) ($snapshot['duration_minutes'] ?? 0);
+            if ($durationMinutes < 1) {
+                return $this->createFailedServiceAccount($purchase, 'Package duration is invalid.', $router->id);
+            }
 
-            $expiresAt = now()->addMinutes($snapshot['duration_minutes']);
+            $username = $existing?->username ?? ('bm-'.Str::lower(Str::random(10)));
+            $password = Str::random(24);
+            $expiresAt = now()->addMinutes($durationMinutes);
+            $account = $existing ?? new ServiceAccount([
+                'id' => Str::uuid()->toString(),
+                'purchase_id' => $purchase->id,
+                'customer_id' => $customer->id,
+            ]);
+            $account->fill([
+                'router_id' => $router->id,
+                'username' => $username,
+                'password_hash' => bcrypt($password),
+                'access_type' => $snapshot['access_type'] ?? 'hotspot',
+                'rate_limit_rx_kbps' => $snapshot['download_limit_kbps'] ?? 0,
+                'rate_limit_tx_kbps' => $snapshot['upload_limit_kbps'] ?? 0,
+                'activation_status' => ServiceAccount::STATUS_PENDING,
+                'activated_at' => null,
+                'expires_at' => $expiresAt,
+                'deactivation_reason' => null,
+            ]);
+            $account->save();
+
+            if (! $this->radiusProvisioning->isConfigured()) {
+                $account->update([
+                    'expires_at' => null,
+                    'deactivation_reason' => 'Private FreeRADIUS provisioning API is not configured.',
+                ]);
+                $purchase->update(['status' => 'activation_pending']);
+                AuditLog::record('system', null, 'activation_pending_configuration', 'service_account', $account->id, []);
+
+                return $account->fresh();
+            }
 
             try {
-                // ── RADIUS provisioning path ────────────────────────────
-                if ($this->radiusService && $this->radiusService->isEnabled()) {
-                    try {
-                        $serviceAccount = ServiceAccount::create([
-                            'id' => Str::uuid()->toString(),
-                            'purchase_id' => $purchase->id,
-                            'customer_id' => $customer->id,
-                            'router_id' => $router->id,
-                            'username' => $username,
-                            'password_hash' => bcrypt($password),
-                            'access_type' => $snapshot['access_type'] ?? 'hotspot',
-                            'rate_limit_rx_kbps' => $snapshot['download_limit_kbps'] ?? 0,
-                            'rate_limit_tx_kbps' => $snapshot['upload_limit_kbps'] ?? 0,
-                            'activation_status' => ServiceAccount::STATUS_ACTIVE,
-                            'activated_at' => now(),
-                            'expires_at' => $expiresAt,
-                        ]);
-
-                        $this->radiusService->provisionServiceAccount($serviceAccount, $snapshot);
-
-                        $purchase->update(['status' => 'activated']);
-
-                        AuditLog::record('system', null, 'activation_success', 'service_account', $serviceAccount->id, [
-                            'router_id' => $router->id,
-                            'username' => $username,
-                            'expires_at' => $expiresAt->toIso8601String(),
-                            'provisioning' => 'radius',
-                        ]);
-
-                        return $serviceAccount;
-                    } catch (\Throwable $e) {
-                        $serviceAccount = $this->createFailedServiceAccount($purchase, 'RADIUS: ' . $e->getMessage(), $router->id);
-
-                        AuditLog::record('system', null, 'activation_failed', 'service_account', $serviceAccount->id, [
-                            'error' => $e->getMessage(),
-                            'router_id' => $router->id,
-                            'provisioning' => 'radius',
-                        ]);
-
-                        Log::error('RADIUS activation failed', [
-                            'purchase_id' => $purchase->id,
-                            'error' => $e->getMessage(),
-                        ]);
-
-                        return $serviceAccount;
-                    }
-                }
-
-                // ── Direct MikroTik provisioning path ───────────────────
-                if (! $this->hotspotManager->isConfigured()) {
-                    // Sandbox mode — create account record but mark as pending
-                    $serviceAccount = ServiceAccount::create([
-                        'id' => Str::uuid()->toString(),
-                        'purchase_id' => $purchase->id,
-                        'customer_id' => $customer->id,
-                        'router_id' => $router->id,
-                        'username' => $username,
-                        'password_hash' => bcrypt($password),
-                        'access_type' => $snapshot['access_type'] ?? 'hotspot',
-                        'rate_limit_rx_kbps' => $snapshot['download_limit_kbps'] ?? 0,
-                        'rate_limit_tx_kbps' => $snapshot['upload_limit_kbps'] ?? 0,
-                        'activation_status' => ServiceAccount::STATUS_PENDING,
-                        'expires_at' => $expiresAt,
-                        'deactivation_reason' => 'Hotspot billing credentials not configured — sandbox mode',
-                    ]);
-
-                    $purchase->update(['status' => 'activation_pending']);
-
-                    AuditLog::record('system', null, 'activation_sandbox', 'service_account', $serviceAccount->id, [
-                        'reason' => 'billing credentials not configured',
-                    ]);
-
-                    return $serviceAccount;
-                }
-
-                // Real provisioning
-                $client = $this->hotspotManager->connectToRouter($router);
-
-                try {
-                    $this->hotspotManager->ensureProfile(
-                        $client,
-                        $profileName,
-                        $snapshot['download_limit_kbps'] ?? 0,
-                        $snapshot['upload_limit_kbps'] ?? 0,
-                        $snapshot['duration_minutes'] * 60,
-                    );
-
-                    $this->hotspotManager->createOrUpdateUser($client, $username, $password, $profileName);
-
-                    $serviceAccount = ServiceAccount::create([
-                        'id' => Str::uuid()->toString(),
-                        'purchase_id' => $purchase->id,
-                        'customer_id' => $customer->id,
-                        'router_id' => $router->id,
-                        'username' => $username,
-                        'password_hash' => bcrypt($password),
-                        'access_type' => $snapshot['access_type'] ?? 'hotspot',
-                        'rate_limit_rx_kbps' => $snapshot['download_limit_kbps'] ?? 0,
-                        'rate_limit_tx_kbps' => $snapshot['upload_limit_kbps'] ?? 0,
-                        'activation_status' => ServiceAccount::STATUS_ACTIVE,
-                        'activated_at' => now(),
-                        'expires_at' => $expiresAt,
-                    ]);
-
-                    $purchase->update(['status' => 'activated']);
-
-                    AuditLog::record('system', null, 'activation_success', 'service_account', $serviceAccount->id, [
-                        'router_id' => $router->id,
-                        'username' => $username,
-                        'expires_at' => $expiresAt->toIso8601String(),
-                    ]);
-
-                    $client->disconnect();
-
-                    return $serviceAccount;
-                } catch (\Throwable $e) {
-                    $client->disconnect();
-
-                    $serviceAccount = $this->createFailedServiceAccount($purchase, $e->getMessage(), $router->id);
-
-                    AuditLog::record('system', null, 'activation_failed', 'service_account', $serviceAccount->id, [
-                        'error' => $e->getMessage(),
-                        'router_id' => $router->id,
-                    ]);
-
-                    Log::error('Hotspot activation failed', [
-                        'purchase_id' => $purchase->id,
-                        'error' => $e->getMessage(),
-                    ]);
-
-                    return $serviceAccount;
-                }
-            } catch (\Throwable $e) {
-                $serviceAccount = $this->createFailedServiceAccount($purchase, $e->getMessage());
-
-                AuditLog::record('system', null, 'activation_connection_failed', 'service_account', $serviceAccount->id, [
-                    'error' => $e->getMessage(),
+                $this->radiusProvisioning->provision($account, $router, $snapshot, $password);
+            } catch (\RuntimeException) {
+                $serviceAccount = $this->createFailedServiceAccount(
+                    $purchase,
+                    'Private FreeRADIUS provisioning failed; retry after checking the private API.',
+                    $router->id,
+                );
+                AuditLog::record('system', null, 'activation_failed', 'service_account', $serviceAccount->id, [
+                    'router_id' => $router->id,
+                ]);
+                Log::error('Private FreeRADIUS provisioning failed', [
+                    'purchase_id' => $purchase->id,
+                    'service_account_id' => $serviceAccount->id,
                 ]);
 
                 return $serviceAccount;
             }
+
+            $account->update([
+                'activation_status' => ServiceAccount::STATUS_ACTIVE,
+                'activated_at' => now(),
+                'expires_at' => $expiresAt,
+            ]);
+            $purchase->update(['status' => 'activated']);
+            AuditLog::record('system', null, 'activation_success', 'service_account', $account->id, [
+                'router_id' => $router->id,
+                'username' => $username,
+                'expires_at' => $expiresAt->toIso8601String(),
+            ]);
+
+            return $account->fresh();
         });
     }
 
@@ -242,32 +171,16 @@ class ActivationService
     public function deactivate(ServiceAccount $serviceAccount, string $reason): void
     {
         DB::transaction(function () use ($serviceAccount, $reason) {
+            $serviceAccount = ServiceAccount::whereKey($serviceAccount->getKey())->lockForUpdate()->firstOrFail();
             if ($serviceAccount->activation_status === ServiceAccount::STATUS_EXPIRED
                 || $serviceAccount->activation_status === ServiceAccount::STATUS_DEACTIVATED) {
                 return;
             }
 
-            if ($this->radiusService && $this->radiusService->isEnabled()) {
-                try {
-                    $this->radiusService->deprovisionServiceAccount($serviceAccount);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to deprovision RADIUS user on deactivation', [
-                        'service_account_id' => $serviceAccount->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            } elseif ($this->hotspotManager->isConfigured() && $serviceAccount->router) {
-                try {
-                    $client = $this->hotspotManager->connectToRouter($serviceAccount->router);
-                    $this->hotspotManager->removeUser($client, $serviceAccount->username);
-                    $client->disconnect();
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to remove hotspot user on deactivation', [
-                        'service_account_id' => $serviceAccount->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+            if (! $this->radiusProvisioning->isConfigured()) {
+                throw new \RuntimeException('Private FreeRADIUS provisioning API is not configured.');
             }
+            $this->radiusProvisioning->deactivate($serviceAccount, $reason);
 
             $serviceAccount->update([
                 'activation_status' => ServiceAccount::STATUS_EXPIRED,

@@ -53,7 +53,7 @@ export function GlobalSearch() {
 
   const selectRouter = (id: string) => {
     setOpen(false);
-    navigate(`/routers/${id}`);
+    navigate(`/admin/routers/${id}`);
   };
 
   if (!open) {

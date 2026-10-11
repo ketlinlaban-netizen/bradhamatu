@@ -17,6 +17,16 @@ const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 
 const TOKEN_KEY = "bradha-matu-token";
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -62,10 +72,16 @@ async function request<T>(
       const body = await response.json();
       if (body.error) message = body.error;
       else if (body.message) message = body.message;
+      if (body.errors && typeof body.errors === "object") {
+        const fieldMessages = Object.values(body.errors)
+          .flatMap((messages) => Array.isArray(messages) ? messages : [])
+          .filter((item): item is string => typeof item === "string");
+        if (fieldMessages.length) message = fieldMessages.join(" ");
+      }
     } catch {
       // response had no JSON body
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   // 204 No Content
@@ -84,6 +100,13 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, {
     method: "POST",
     body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: "PATCH",
+    body: JSON.stringify(body),
   });
 }
 

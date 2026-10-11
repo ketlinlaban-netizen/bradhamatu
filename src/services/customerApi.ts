@@ -84,6 +84,16 @@ export async function getCustomerPackages(): Promise<Package[]> {
   return result.packages;
 }
 
+export interface CustomerPaymentMethod {
+  id: "mpesa" | "pesapal" | "flutterwave" | "paystack";
+  label: string;
+}
+
+export async function getCustomerPaymentMethods(): Promise<CustomerPaymentMethod[]> {
+  const result = await apiGet<{ methods: CustomerPaymentMethod[] }>("/customer/payment-methods");
+  return result.methods;
+}
+
 export async function getPublicPackages(): Promise<Package[]> {
   const result = await apiGet<{ packages: Package[] }>("/public/packages");
   return result.packages;
@@ -103,12 +113,13 @@ export async function getPayments(): Promise<Payment[]> {
   return result.payments;
 }
 
-export async function initiatePurchase(packageId: string): Promise<{
+export async function initiatePurchase(packageId: string, provider: CustomerPaymentMethod["id"], email?: string): Promise<{
   purchase: Purchase;
   payment: Payment;
   daraja_response: unknown;
+  checkout_url: string | null;
 }> {
-  return apiPost("/customer/purchase", { package_id: packageId });
+  return apiPost("/customer/purchase", { package_id: packageId, provider, email });
 }
 
 export async function getPaymentStatus(paymentId: string): Promise<Payment> {

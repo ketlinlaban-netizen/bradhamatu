@@ -8,6 +8,8 @@ class Nas extends Model
 {
     protected $table = 'nas';
 
+    protected $hidden = ['secret'];
+
     protected $fillable = [
         'nasname', 'shortname', 'type', 'ports',
         'secret', 'server', 'community', 'description',

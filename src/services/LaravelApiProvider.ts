@@ -11,18 +11,17 @@ import type {
   RouterConnection,
 } from "../types";
 import type { RouterProvider } from "./RouterProvider";
-import { apiGet } from "./api";
+import { apiGet, ApiError } from "./api";
 
 /**
  * LaravelApiProvider
  *
  * Talks to the real Laravel backend, which in turn talks to MikroTik
- * routers via the binary API (or REST API fallback). No mock data —
+ * routers via the native binary API. No mock data —
  * every call is a live HTTP GET to the Laravel API.
  *
  * The Laravel backend handles:
  *   - MikroTik binary API protocol (TCP 8728/8729)
- *   - REST API fallback (HTTPS /rest/)
  *   - Read-only enforcement (RouterReadOnlyGuard on the server)
  *   - Sanctum token authentication
  *
@@ -37,57 +36,42 @@ export class LaravelApiProvider implements RouterProvider {
   async getRouter(routerId: string): Promise<Router | null> {
     try {
       return await apiGet<Router>(`/routers/${routerId}`);
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
     }
   }
 
   async getStatus(routerId: string): Promise<RouterStatusInfo | null> {
-    try {
-      return await apiGet<RouterStatusInfo>(`/routers/${routerId}/status`);
-    } catch {
-      return null;
-    }
+    return apiGet<RouterStatusInfo>(`/routers/${routerId}/status`);
   }
 
   async getInterfaces(routerId: string): Promise<RouterInterface[]> {
-    try {
-      return await apiGet<RouterInterface[]>(`/routers/${routerId}/interfaces`);
-    } catch {
-      return [];
-    }
+    return apiGet<RouterInterface[]>(`/routers/${routerId}/interfaces`);
   }
 
   async getClients(routerId: string): Promise<RouterClient[]> {
-    try {
-      return await apiGet<RouterClient[]>(`/routers/${routerId}/clients`);
-    } catch {
-      return [];
-    }
+    return apiGet<RouterClient[]>(`/routers/${routerId}/clients`);
+  }
+
+  async getAllClients(): Promise<RouterClient[]> {
+    return apiGet<RouterClient[]>("/clients");
+  }
+
+  async refreshAllClients(): Promise<RouterClient[]> {
+    return apiGet<RouterClient[]>("/clients/refresh");
   }
 
   async getTraffic(routerId: string): Promise<RouterTraffic | null> {
-    try {
-      return await apiGet<RouterTraffic>(`/routers/${routerId}/traffic`);
-    } catch {
-      return null;
-    }
+    return apiGet<RouterTraffic>(`/routers/${routerId}/traffic`);
   }
 
   async getWireless(routerId: string): Promise<WirelessInfo | null> {
-    try {
-      return await apiGet<WirelessInfo>(`/routers/${routerId}/wireless`);
-    } catch {
-      return null;
-    }
+    return apiGet<WirelessInfo>(`/routers/${routerId}/wireless`);
   }
 
   async getMetrics(routerId: string): Promise<RouterMetric[]> {
-    try {
-      return await apiGet<RouterMetric[]>(`/routers/${routerId}/metrics`);
-    } catch {
-      return [];
-    }
+    return apiGet<RouterMetric[]>(`/routers/${routerId}/metrics`);
   }
 
   async getDashboardSummary(): Promise<DashboardSummary> {
@@ -95,11 +79,7 @@ export class LaravelApiProvider implements RouterProvider {
   }
 
   async getIncidents(): Promise<Incident[]> {
-    try {
-      return await apiGet<Incident[]>("/incidents");
-    } catch {
-      return [];
-    }
+    return apiGet<Incident[]>("/incidents");
   }
 
   async connect(routerId: string): Promise<RouterConnection> {

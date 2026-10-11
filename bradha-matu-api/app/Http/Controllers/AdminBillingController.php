@@ -8,6 +8,7 @@ use App\Models\Purchase;
 use App\Models\ServiceAccount;
 use App\Services\ActivationService;
 use App\Services\PaymentService;
+use App\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,7 +16,8 @@ class AdminBillingController extends Controller
 {
     public function __construct(
         private PaymentService $paymentService,
-        private ActivationService $activationService
+        private ActivationService $activationService,
+        private InvoiceService $invoiceService,
     ) {}
 
     public function customers(Request $request): JsonResponse
@@ -26,23 +28,56 @@ class AdminBillingController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('full_name', 'like', "%{$search}%")
                   ->orWhere('phone_normalized', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('account_number', 'like', "%{$search}%")
+                  ->orWhere('location', 'like', "%{$search}%");
             });
         }
 
         $customers = $query->withCount(['purchases', 'serviceAccounts'])
             ->latest()
-            ->paginate(20);
+            ->paginate(20)
+            ->through(fn (Customer $customer): array => [
+                'id' => $customer->id,
+                'account_number' => $customer->account_number,
+                'full_name' => $customer->full_name,
+                'phone_display' => $customer->phone_display,
+                'email' => $customer->email,
+                'location' => $customer->location,
+                'status' => $customer->status,
+                'created_at' => $customer->created_at?->toIso8601String(),
+                'purchases_count' => $customer->purchases_count,
+                'service_accounts_count' => $customer->service_accounts_count,
+            ]);
 
         return response()->json($customers);
     }
 
     public function customerDetail(string $id): JsonResponse
     {
-        $customer = Customer::with(['purchases.payments', 'purchases.serviceAccount', 'supportTickets'])
+        $customer = Customer::with([
+            'networkIdentities.router:id,name,ip_address,status_override,last_error_category',
+            'networkIdentities.networkClient',
+            'purchases.payments',
+            'purchases.serviceAccount',
+            'purchases.networkIdentity.router:id,name,ip_address,status_override,last_error_category',
+            'supportTickets',
+        ])
             ->findOrFail($id);
 
-        return response()->json($customer);
+        return response()->json([
+            'id' => $customer->id,
+            'account_number' => $customer->account_number,
+            'full_name' => $customer->full_name,
+            'phone_display' => $customer->phone_display,
+            'email' => $customer->email,
+            'location' => $customer->location,
+            'notes' => $customer->notes,
+            'status' => $customer->status,
+            'network_identities' => $customer->networkIdentities,
+            'purchases' => $customer->purchases,
+            'support_tickets' => $customer->supportTickets,
+        ]);
     }
 
     public function payments(Request $request): JsonResponse
@@ -56,6 +91,25 @@ class AdminBillingController extends Controller
         $payments = $query->latest()->paginate(20);
 
         return response()->json($payments);
+    }
+
+    public function invoices(): JsonResponse
+    {
+        $invoices = Purchase::whereNotNull('invoice_number')
+            ->with(['customer:id,account_number,full_name,phone_display,email,location', 'payments', 'networkIdentity.router:id,name'])
+            ->latest()
+            ->paginate(20);
+
+        return response()->json($invoices);
+    }
+
+    public function invoice(string $id): JsonResponse
+    {
+        $purchase = Purchase::whereNotNull('invoice_number')
+            ->with(['customer', 'package'])
+            ->findOrFail($id);
+
+        return response()->json($this->invoiceService->buildInvoiceData($purchase));
     }
 
     public function pendingPayments(): JsonResponse
@@ -108,9 +162,21 @@ class AdminBillingController extends Controller
         return response()->json(['service_account' => $account]);
     }
 
+    public function activationFailures(): JsonResponse
+    {
+        $accounts = ServiceAccount::where('activation_status', ServiceAccount::STATUS_ACTIVATION_FAILED)
+            ->with(['customer:id,full_name,phone_display', 'purchase:id,order_id,amount_minor'])
+            ->latest()
+            ->paginate(20);
+
+        return response()->json($accounts);
+    }
+
     public function revenueReport(Request $request): JsonResponse
     {
-        $period = $request->get('period', 'today');
+        $period = $request->validate([
+            'period' => 'sometimes|in:today,week,month,all',
+        ])['period'] ?? 'today';
 
         $query = Payment::where('state', 'successful');
 
@@ -128,12 +194,32 @@ class AdminBillingController extends Controller
         $totalMinor = (clone $query)->sum('amount_minor');
         $count = (clone $query)->count();
 
-        $failedCount = Payment::where('state', 'failed')->when($range[0], fn ($q) => $q->where('completed_at', '>=', $range[0]))->count();
+        $failedCount = Payment::where('state', 'failed')
+            ->when($range[0], fn ($q) => $q->where('completed_at', '>=', $range[0]))
+            ->when($range[1], fn ($q) => $q->where('completed_at', '<=', $range[1]))
+            ->count();
         $pendingCount = Payment::where('state', 'pending')->count();
         $activeSubscribers = ServiceAccount::where('activation_status', ServiceAccount::STATUS_ACTIVE)
             ->where('expires_at', '>', now())->count();
         $expiredCount = ServiceAccount::where('activation_status', ServiceAccount::STATUS_EXPIRED)->count();
         $activationFailures = ServiceAccount::where('activation_status', ServiceAccount::STATUS_ACTIVATION_FAILED)->count();
+        $trendStart = now()->subDays(6)->startOfDay();
+        $dailyTotals = Payment::where('state', 'successful')
+            ->whereBetween('completed_at', [$trendStart, now()->endOfDay()])
+            ->selectRaw('DATE(completed_at) as day, SUM(amount_minor) as amount_minor, COUNT(*) as payment_count')
+            ->groupByRaw('DATE(completed_at)')
+            ->get()
+            ->keyBy('day');
+        $dailyRevenue = collect(range(0, 6))->map(function (int $offset) use ($trendStart, $dailyTotals): array {
+            $day = $trendStart->copy()->addDays($offset)->toDateString();
+            $total = $dailyTotals->get($day);
+
+            return [
+                'date' => $day,
+                'revenue_ksh' => (int) ($total->amount_minor ?? 0) / 100,
+                'successful_payments' => (int) ($total->payment_count ?? 0),
+            ];
+        });
 
         return response()->json([
             'period' => $period,
@@ -144,6 +230,7 @@ class AdminBillingController extends Controller
             'active_subscribers' => $activeSubscribers,
             'expired_packages' => $expiredCount,
             'activation_failures' => $activationFailures,
+            'daily_revenue' => $dailyRevenue,
         ]);
     }
 

@@ -50,16 +50,16 @@
 - Payment status polling with backoff
 - Payment result display (success/failure/pending)
 
-### Phase D: MikroTik Billing-Provisioning Adapter
+### Phase D: Private FreeRADIUS Provisioning Adapter
 
 **Backend:**
-- `BillingProvisioningService` — separate from monitoring, uses dedicated write-capable MikroTik credentials
-- Allowed operations: create hotspot user, set hotspot user profile, remove hotspot user, disconnect session
-- `HotspotUserManager` — creates/updates/removes `/ip/hotspot/user` entries
-- `HotspotProfileManager` — manages `/ip/hotspot/user/profile` for rate limits and session timeouts
-- Idempotency locks on provisioning operations
-- Audit logging for all provisioning actions
-- Safe failure handling — activation_failed state preserves payment
+- Subscriber provisioning is isolated behind the private FreeRADIUS HTTPS API and authenticated with an mTLS client certificate
+- API destinations are fixed by backend configuration and a separately configured exact allowed host; callbacks and browser input cannot supply a host or command
+- API operations provision/update a subscriber, change that subscriber's password, and deactivate that subscriber; there is no arbitrary command interface
+- NAS selection, access type, validated bandwidth limits, and expiry are sent from server-side package/router records
+- RouterOS monitoring remains read-only; this adapter does not connect to RouterOS or add write commands to its provider/guard
+- Private API contract and deployment prerequisites are documented in `docs/FREERADIUS_PRIVATE_API.md`
+- Until the API endpoint, VPN route, server CA and mTLS client certificate are configured, successful purchases remain pending activation; payment is retained and no direct RouterOS fallback is attempted
 
 ### Phase E: Activation, Expiry, Receipts, Admin Dashboard
 
@@ -69,6 +69,9 @@
 - Receipt generation (PDF or structured data)
 - Revenue reporting endpoints (verified payments only)
 - Admin endpoints: customer management, payment reconciliation, package management, audit logs
+- Payment adapters: existing M-Pesa/Daraja plus Pesapal, Flutterwave, and Paystack hosted checkout
+- Invoice and voucher print/export workflows in the branded console
+- Outbound SMS/WhatsApp/Telegram sending is deferred; no vendor-specific delivery has been enabled
 
 **Frontend:**
 - Admin dashboard extensions: revenue, active subscribers, pending payments, activation failures
@@ -102,6 +105,10 @@
 
 ---
 
+## Current integration boundaries
+
+The Laravel payment adapters have mocked checkout/webhook coverage; provider credentials, merchant-account setup, settlement, and public callback reachability remain deployment prerequisites. Subscriber writes are sent only to the separately hosted FreeRADIUS API described in `docs/FREERADIUS_PRIVATE_API.md`, using mTLS. The private API host and VPN route are not present or verified, so actual subscriber activation remains pending until the operator implements and provisions that host-side contract. No live router or production data was changed.
+
 ## File Structure Plan
 
 ```
@@ -130,8 +137,7 @@ bradha-matu-api/
       DarajaApiClient.php             (new)
       PaymentService.php              (new)
       ActivationService.php           (new)
-      BillingProvisioningService.php  (new)
-      HotspotUserManager.php          (new)
+      RadiusProvisioningClient.php    (private mTLS API client)
       ExpiryService.php               (new)
       PhoneNormalizer.php             (new)
       ReceiptService.php              (new)

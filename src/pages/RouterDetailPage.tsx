@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -35,7 +35,8 @@ import type {
   RouterConnection,
 } from "../types";
 import { formatBytes, formatUptime, timeAgo } from "../utils/format";
-import { StatusBadge, LoadingSpinner, EmptyState } from "../components/ui";
+import { StatusBadge, EmptyState } from "../components/ui";
+import { ClientAliasControl } from "../components/ClientAliasControl";
 
 type Tab = "overview" | "interfaces" | "clients" | "wireless" | "traffic";
 
@@ -51,55 +52,92 @@ export function RouterDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [connection, setConnection] = useState<RouterConnection | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [connectStep, setConnectStep] = useState(0);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
+  const loadRouter = useCallback(async () => {
     if (!routerId) return;
     setLoading(true);
-    Promise.all([
-      routerService.getRouter(routerId),
-      routerService.getStatus(routerId),
-      routerService.getInterfaces(routerId),
-      routerService.getClients(routerId),
-      routerService.getTraffic(routerId),
-      routerService.getWireless(routerId),
-    ]).then(([r, s, i, c, t, w]) => {
+    setLoadError("");
+    setRouter(null);
+    setStatus(null);
+    setInterfaces([]);
+    setClients([]);
+    setTraffic(null);
+    setWireless(null);
+    try {
+      const r = await routerService.getRouter(routerId);
       setRouter(r);
-      setStatus(s);
-      setInterfaces(i);
-      setClients(c);
-      setTraffic(t);
-      setWireless(w);
+      if (!r) {
+        setLoadError("Router not found.");
+        return;
+      }
+      const results = await Promise.allSettled([
+        routerService.getStatus(routerId),
+        routerService.getInterfaces(routerId),
+        routerService.getClients(routerId),
+        routerService.getTraffic(routerId),
+        routerService.getWireless(routerId),
+      ]);
+      const failures: string[] = [];
+      const [statusResult, interfacesResult, clientsResult, trafficResult, wirelessResult] = results;
+      if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+      else failures.push("health");
+      if (interfacesResult.status === "fulfilled") setInterfaces(interfacesResult.value);
+      else failures.push("interfaces");
+      if (clientsResult.status === "fulfilled") setClients(clientsResult.value);
+      else failures.push("clients");
+      if (trafficResult.status === "fulfilled") setTraffic(trafficResult.value);
+      else failures.push("traffic");
+      if (wirelessResult.status === "fulfilled") setWireless(wirelessResult.value);
+      else failures.push("wireless");
+      if (failures.length) setLoadError(`Could not load ${failures.join(", ")} data. Other available router details are shown.`);
+    } catch (error) {
+      setRouter(null);
+      setLoadError(error instanceof Error ? error.message : "Could not load router details.");
+    } finally {
       setLoading(false);
-    });
+    }
   }, [routerId]);
+
+  useEffect(() => {
+    void loadRouter();
+  }, [loadRouter]);
 
   const handleConnect = async () => {
     if (!routerId) return;
     setConnecting(true);
-    setConnectStep(0);
 
-    // Simulate connection phases
-    setConnectStep(1); // Connecting...
-    await new Promise((r) => setTimeout(r, 800));
-    setConnectStep(2); // Authenticating...
-    await new Promise((r) => setTimeout(r, 800));
-    setConnectStep(3); // Established
-    await new Promise((r) => setTimeout(r, 400));
-
-    const conn = await routerService.connect(routerId);
-    setConnection(conn);
-    setConnecting(false);
+    try {
+      const conn = await routerService.connect(routerId);
+      setConnection(conn);
+    } catch (error) {
+      setConnection({
+        routerId,
+        state: "failed",
+        message: error instanceof Error ? error.message : "The connection test failed.",
+        readOnly: true,
+        sessionToken: null,
+      });
+    } finally {
+      setConnecting(false);
+    }
   };
 
-  if (loading) return <LoadingSpinner label="Loading router details..." />;
   if (!router) {
     return (
       <div className="card">
-        <EmptyState message="Router not found." />
-        <div className="text-center pb-6">
-          <Link to="/routers" className="text-sm text-noc-accent hover:text-blue-400">← Back to routers</Link>
-        </div>
+        {loading ? (
+          <div className="p-6 text-sm text-slate-400">Loading router information…</div>
+        ) : (
+          <>
+            {loadError && <div role="alert" className="mx-5 mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{loadError}</div>}
+            {!loadError && <EmptyState message="Router not found." />}
+            {loadError && <div className="text-center pt-5"><button type="button" onClick={() => void loadRouter()} className="text-sm text-noc-accent hover:text-blue-400">Retry</button></div>}
+            <div className="text-center pb-6">
+              <Link to="/admin/routers" className="text-sm text-noc-accent hover:text-blue-400">← Back to routers</Link>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -115,9 +153,15 @@ export function RouterDetailPage() {
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
-      <Link to="/routers" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200">
+      <Link to="/admin/routers" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200">
         <ArrowLeft className="w-4 h-4" /> Back to Routers
       </Link>
+      {loadError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => void loadRouter()} className="btn-secondary !px-3 !py-1.5">Retry</button>
+        </div>
+      )}
 
       {/* Router header */}
       <div className="card p-6">
@@ -140,32 +184,27 @@ export function RouterDetailPage() {
             {/* Read-only badge */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-500/5 border border-green-500/20">
               <ShieldCheck className="w-4 h-4 text-green-500" />
-              <span className="text-xs font-medium text-green-400">READ-ONLY SESSION</span>
+              <span className="text-xs font-medium text-green-400">READ-ONLY API</span>
             </div>
 
             {/* Connect button */}
-            {connection ? (
+            {connection?.state === "established" ? (
               <div className="flex items-center gap-2 text-sm text-green-400">
                 <CheckCircle2 className="w-4 h-4" />
-                <span className="font-medium">Connected</span>
-                <span className="text-xs text-slate-500 font-mono">{connection.sessionToken?.slice(0, 20)}...</span>
+                <span className="font-medium">Connection test succeeded</span>
+                <span className="text-xs text-slate-500">{connection.message}</span>
+              </div>
+            ) : connection?.state === "failed" ? (
+              <div className="max-w-sm text-right">
+                <p role="alert" className="text-sm text-red-300">{connection.message}</p>
+                <button onClick={handleConnect} className="mt-2 text-sm text-noc-accent hover:text-blue-400">
+                  Retry connection test
+                </button>
               </div>
             ) : connecting ? (
-              <div className="flex flex-col items-end gap-2">
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>
-                    {connectStep === 1 && "Connecting..."}
-                    {connectStep === 2 && "Authenticating..."}
-                    {connectStep === 3 && "Connection established."}
-                  </span>
-                </div>
-                <div className="w-40 h-1 bg-noc-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-noc-accent transition-all duration-500"
-                    style={{ width: `${connectStep * 33}%` }}
-                  />
-                </div>
+              <div className="flex items-center gap-2 text-sm text-slate-300">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Testing read-only API access...</span>
               </div>
             ) : (
               <button onClick={handleConnect} className="btn-primary flex items-center gap-2 text-sm">
@@ -206,7 +245,13 @@ export function RouterDetailPage() {
         <InterfacesTab interfaces={interfaces} />
       )}
       {activeTab === "clients" && (
-        <ClientsTab clients={clients} routerStatus={router.status} />
+        <ClientsTab
+          clients={clients}
+          routerStatus={router.status}
+          onClientUpdated={(updated) => setClients((current) =>
+            current.map((client) => client.id === updated.id ? updated : client)
+          )}
+        />
       )}
       {activeTab === "wireless" && (
         <WirelessTab wireless={wireless} routerStatus={router.status} />
@@ -219,7 +264,7 @@ export function RouterDetailPage() {
 }
 
 function MetricCard({ icon: Icon, label, value, unit, color }: {
-  icon: typeof Cpu; label: string; value: string | number; unit?: string; color: string;
+  icon: typeof Cpu; label: string; value: string | number | null; unit?: string; color: string;
 }) {
   return (
     <div className="card p-5">
@@ -247,7 +292,7 @@ function OverviewTab({ router, status }: { router: Router; status: RouterStatusI
         <MetricCard icon={MemoryStick} label="Memory" value={status.memoryUsage} unit="%" color="text-cyan-400" />
         <MetricCard icon={HardDrive} label="Storage" value={status.storageUsage} unit="%" color="text-purple-400" />
         <MetricCard icon={Thermometer} label="Temperature" value={status.temperature} unit="°C" color="text-amber-400" />
-        <MetricCard icon={Clock} label="Uptime" value={formatUptime(status.uptimeSeconds)} color="text-emerald-400" />
+        <MetricCard icon={Clock} label="Uptime" value={status.uptimeSeconds === null ? "—" : formatUptime(status.uptimeSeconds)} color="text-emerald-400" />
         <MetricCard icon={Activity} label="Latency" value={status.connectionLatencyMs} unit="ms" color="text-green-400" />
       </div>
 
@@ -255,9 +300,9 @@ function OverviewTab({ router, status }: { router: Router; status: RouterStatusI
       {!isOffline && (
         <div className="card p-5 space-y-4">
           <h3 className="text-sm font-semibold text-slate-200">Resource Usage</h3>
-          <UsageBar label="CPU" value={status.cpuUsage} color="bg-blue-500" />
-          <UsageBar label="Memory" value={status.memoryUsage} color="bg-cyan-500" />
-          <UsageBar label="Storage" value={status.storageUsage} color="bg-purple-500" />
+          {status.cpuUsage !== null && <UsageBar label="CPU" value={status.cpuUsage} color="bg-blue-500" />}
+          {status.memoryUsage !== null && <UsageBar label="Memory" value={status.memoryUsage} color="bg-cyan-500" />}
+          {status.storageUsage !== null && <UsageBar label="Storage" value={status.storageUsage} color="bg-purple-500" />}
         </div>
       )}
 
@@ -365,18 +410,33 @@ function InterfacesTab({ interfaces }: { interfaces: RouterInterface[] }) {
   );
 }
 
-function ClientsTab({ clients, routerStatus }: { clients: RouterClient[]; routerStatus: string }) {
-  if (routerStatus === "offline") {
-    return (
-      <div className="card">
-        <EmptyState message="No active clients — router is offline." />
-      </div>
-    );
+function resolveClientStatus(client: RouterClient): NonNullable<RouterClient["status"]> {
+  const raw = client.status;
+
+  if (raw === "online" || raw === "offline" || raw === "unknown") {
+    return raw;
   }
+
+  if (client.offlineReason) {
+    return "offline";
+  }
+
+  return "unknown";
+}
+
+function ClientsTab({
+  clients,
+  routerStatus,
+  onClientUpdated,
+}: {
+  clients: RouterClient[];
+  routerStatus: string;
+  onClientUpdated: (client: RouterClient) => void;
+}) {
   if (clients.length === 0) {
     return (
       <div className="card">
-        <EmptyState message="No clients currently connected." />
+        <EmptyState message={routerStatus === "offline" ? "No saved client history is available for this offline router." : "No clients have been discovered yet."} />
       </div>
     );
   }
@@ -386,6 +446,7 @@ function ClientsTab({ clients, routerStatus }: { clients: RouterClient[]; router
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-noc-border">
+              <th className="px-5 py-3 font-medium">Status</th>
               <th className="px-5 py-3 font-medium">Client</th>
               <th className="px-5 py-3 font-medium">IP</th>
               <th className="px-5 py-3 font-medium">MAC</th>
@@ -393,29 +454,43 @@ function ClientsTab({ clients, routerStatus }: { clients: RouterClient[]; router
               <th className="px-5 py-3 font-medium text-right">Signal</th>
               <th className="px-5 py-3 font-medium text-right">RX</th>
               <th className="px-5 py-3 font-medium text-right">TX</th>
+              <th className="px-5 py-3 font-medium">Last seen / reason</th>
+              <th className="px-5 py-3 font-medium">Device name</th>
             </tr>
           </thead>
           <tbody>
-            {clients.map((client) => (
-              <tr key={client.id} className="border-b border-noc-border/50 last:border-0 hover:bg-noc-hover/50">
-                <td className="px-5 py-3 font-medium text-slate-200">{client.hostname}</td>
-                <td className="px-5 py-3 font-mono text-xs text-slate-400">{client.ipAddress}</td>
-                <td className="px-5 py-3 font-mono text-xs text-slate-500">{client.macAddress}</td>
-                <td className="px-5 py-3 text-slate-400">{client.interfaceName}</td>
-                <td className="px-5 py-3 text-right">
-                  <span className={`font-mono text-xs ${client.signal > -60 ? "text-green-400" : client.signal > -75 ? "text-amber-400" : "text-red-400"}`}>
-                    {client.signal} dBm
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{formatBytes(client.rxBytes)}</td>
-                <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{formatBytes(client.txBytes)}</td>
-              </tr>
-            ))}
+            {clients.map((client) => {
+              const status = resolveClientStatus(client);
+              return (
+                <tr key={client.id} className="border-b border-noc-border/50 last:border-0 hover:bg-noc-hover/50">
+                  <td className={`px-5 py-3 text-xs font-medium ${status === "offline" ? "text-red-400" : status === "unknown" ? "text-amber-400" : "text-green-400"}`}>
+                    {status}
+                  </td>
+                  <td className="px-5 py-3 font-medium text-slate-200">{client.displayName || client.alias || client.hostname || "Unknown Device"}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-slate-400">{client.ipAddress || "—"}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-slate-500">{client.macAddress}</td>
+                  <td className="px-5 py-3 text-slate-400">{client.interfaceName}</td>
+                  <td className="px-5 py-3 text-right">
+                    <span className={`font-mono text-xs ${client.signal > -60 ? "text-green-400" : client.signal > -75 ? "text-amber-400" : "text-red-400"}`}>
+                      {client.signal} dBm
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{formatBytes(client.rxBytes)}</td>
+                  <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{formatBytes(client.txBytes)}</td>
+                  <td className="px-5 py-3 text-xs text-slate-400">
+                    {client.offlineReason ?? (client.lastSeenAt ? timeAgo(client.lastSeenAt) : "—")}
+                  </td>
+                  <td className="px-5 py-3">
+                    <ClientAliasControl client={client} onSaved={onClientUpdated} />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <div className="px-5 py-3 border-t border-noc-border text-xs text-slate-500">
-        {clients.length} clients connected. Read-only view — no disconnect or bandwidth controls available.
+        {clients.filter((client) => resolveClientStatus(client) === "online").length} online · {clients.filter((client) => resolveClientStatus(client) === "offline").length} offline · {clients.filter((client) => resolveClientStatus(client) === "unknown").length} unknown. Read-only view.
       </div>
     </div>
   );

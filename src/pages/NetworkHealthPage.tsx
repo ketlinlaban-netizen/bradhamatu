@@ -1,42 +1,69 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Cpu, MemoryStick, Thermometer, Activity } from "lucide-react";
+import { Cpu, MemoryStick, Thermometer, Activity, RefreshCw } from "lucide-react";
 import { routerService } from "../services/RouterService";
 import type { Router, RouterStatusInfo } from "../types";
 import { formatUptime } from "../utils/format";
-import { LoadingSpinner } from "../components/ui";
 
 export function NetworkHealthPage() {
   const [routers, setRouters] = useState<Router[]>([]);
   const [statuses, setStatuses] = useState<Record<string, RouterStatusInfo>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    routerService.getRouters().then(async (all) => {
+  const loadHealth = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const all = await routerService.getRouters();
       setRouters(all);
-      const map: Record<string, RouterStatusInfo> = {};
-      for (const r of all) {
-        const s = await routerService.getStatus(r.id);
-        if (s) map[r.id] = s;
+      const results = await Promise.allSettled(
+        all.filter((router) => router.status !== "offline").map(async (router) => {
+          const status = await routerService.getStatus(router.id);
+          return [router.id, status] as const;
+        }),
+      );
+      const nextStatuses: Record<string, RouterStatusInfo> = {};
+      let failedCount = 0;
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value[1]) {
+          nextStatuses[result.value[0]] = result.value[1];
+        } else if (result.status === "rejected") {
+          failedCount += 1;
+        }
       }
-      setStatuses(map);
+      setStatuses(nextStatuses);
+      if (failedCount > 0) {
+        setError(`Health data could not be loaded for ${failedCount} router${failedCount === 1 ? "" : "s"}. Other available router data is shown.`);
+      }
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load network health.");
+    } finally {
       setLoading(false);
-    });
+    }
   }, []);
 
-  if (loading) return <LoadingSpinner label="Loading network health..." />;
+  useEffect(() => {
+    void loadHealth();
+  }, [loadHealth]);
 
   const onlineRouters = routers.filter((r) => r.status !== "offline");
-  const avgCpu = onlineRouters.reduce((sum, r) => sum + (statuses[r.id]?.cpuUsage ?? 0), 0) / (onlineRouters.length || 1);
-  const avgMem = onlineRouters.reduce((sum, r) => sum + (statuses[r.id]?.memoryUsage ?? 0), 0) / (onlineRouters.length || 1);
-  const avgTemp = onlineRouters.reduce((sum, r) => sum + (statuses[r.id]?.temperature ?? 0), 0) / (onlineRouters.length || 1);
-  const avgLatency = onlineRouters.reduce((sum, r) => sum + (statuses[r.id]?.connectionLatencyMs ?? 0), 0) / (onlineRouters.length || 1);
+  const average = (values: Array<number | null | undefined>): number | null => {
+    const available = values.filter((value): value is number => value !== null && value !== undefined);
+    return available.length > 0
+      ? available.reduce((sum, value) => sum + value, 0) / available.length
+      : null;
+  };
+  const avgCpu = average(onlineRouters.map((router) => statuses[router.id]?.cpuUsage));
+  const avgMem = average(onlineRouters.map((router) => statuses[router.id]?.memoryUsage));
+  const avgTemp = average(onlineRouters.map((router) => statuses[router.id]?.temperature));
+  const avgLatency = average(onlineRouters.map((router) => statuses[router.id]?.connectionLatencyMs));
 
   const healthMetrics = [
-    { label: "Avg CPU", value: `${avgCpu.toFixed(1)}%`, icon: Cpu, color: "text-blue-400", barColor: "bg-blue-500", percent: avgCpu },
-    { label: "Avg Memory", value: `${avgMem.toFixed(1)}%`, icon: MemoryStick, color: "text-cyan-400", barColor: "bg-cyan-500", percent: avgMem },
-    { label: "Avg Temperature", value: `${avgTemp.toFixed(1)}°C`, icon: Thermometer, color: "text-amber-400", barColor: "bg-amber-500", percent: (avgTemp / 70) * 100 },
-    { label: "Avg Latency", value: `${avgLatency.toFixed(1)} ms`, icon: Activity, color: "text-green-400", barColor: "bg-green-500", percent: (avgLatency / 10) * 100 },
+    { label: "Avg CPU", value: avgCpu === null ? "—" : `${avgCpu.toFixed(1)}%`, icon: Cpu, color: "text-blue-400", barColor: "bg-blue-500", percent: avgCpu },
+    { label: "Avg Memory", value: avgMem === null ? "—" : `${avgMem.toFixed(1)}%`, icon: MemoryStick, color: "text-cyan-400", barColor: "bg-cyan-500", percent: avgMem },
+    { label: "Avg Temperature", value: avgTemp === null ? "—" : `${avgTemp.toFixed(1)}°C`, icon: Thermometer, color: "text-amber-400", barColor: "bg-amber-500", percent: avgTemp === null ? null : (avgTemp / 70) * 100 },
+    { label: "Avg Latency", value: avgLatency === null ? "—" : `${avgLatency.toFixed(1)} ms`, icon: Activity, color: "text-green-400", barColor: "bg-green-500", percent: avgLatency === null ? null : (avgLatency / 10) * 100 },
   ];
 
   return (
@@ -44,7 +71,16 @@ export function NetworkHealthPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Network Health</h1>
         <p className="text-sm text-slate-400 mt-1">Aggregate health metrics across all online routers.</p>
+        {loading && <p className="mt-1 text-xs text-slate-500">Loading saved router health…</p>}
       </div>
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span>{error}</span>
+          <button type="button" className="btn-secondary flex items-center gap-2 !px-3 !py-1.5" onClick={() => void loadHealth()} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />Retry
+          </button>
+        </div>
+      )}
 
       {/* Health metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -58,7 +94,7 @@ export function NetworkHealthPage() {
               </div>
               <div className="text-xl font-bold text-slate-100 mb-2">{m.value}</div>
               <div className="h-1.5 bg-noc-border rounded-full overflow-hidden">
-                <div className={`h-full ${m.barColor} rounded-full transition-all duration-500`} style={{ width: `${Math.min(m.percent, 100)}%` }} />
+                {m.percent !== null && <div className={`h-full ${m.barColor} rounded-full transition-all duration-500`} style={{ width: `${Math.min(m.percent, 100)}%` }} />}
               </div>
             </div>
           );
@@ -84,38 +120,40 @@ export function NetworkHealthPage() {
               </tr>
             </thead>
             <tbody>
-              {routers.map((router) => {
+              {routers.length === 0 && !loading ? (
+                <tr><td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">{error ? "Router health could not be loaded." : "No routers are configured."}</td></tr>
+              ) : routers.map((router) => {
                 const s = statuses[router.id];
                 const isOffline = router.status === "offline";
                 return (
                   <tr key={router.id} className="border-b border-noc-border/50 last:border-0 hover:bg-noc-hover/50">
                     <td className="px-5 py-3">
-                      <Link to={`/routers/${router.id}`} className="font-medium text-slate-100 hover:text-noc-accent">{router.name}</Link>
+                      <Link to={`/admin/routers/${router.id}`} className="font-medium text-slate-100 hover:text-noc-accent">{router.name}</Link>
                       <div className="text-xs text-slate-500">{router.location}</div>
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-xs">
                       <span className={isOffline ? "text-slate-600" : (s?.cpuUsage ?? 0) > 80 ? "text-red-400" : (s?.cpuUsage ?? 0) > 60 ? "text-amber-400" : "text-slate-300"}>
-                        {isOffline ? "—" : `${s?.cpuUsage}%`}
+                        {isOffline || s?.cpuUsage == null ? "—" : `${s.cpuUsage}%`}
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-xs">
                       <span className={isOffline ? "text-slate-600" : (s?.memoryUsage ?? 0) > 80 ? "text-red-400" : (s?.memoryUsage ?? 0) > 60 ? "text-amber-400" : "text-slate-300"}>
-                        {isOffline ? "—" : `${s?.memoryUsage}%`}
+                        {isOffline || s?.memoryUsage == null ? "—" : `${s.memoryUsage}%`}
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-xs text-slate-400">
-                      {isOffline ? "—" : `${s?.storageUsage}%`}
+                      {isOffline || s?.storageUsage == null ? "—" : `${s.storageUsage}%`}
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-xs">
                       <span className={isOffline ? "text-slate-600" : (s?.temperature ?? 0) > 60 ? "text-red-400" : "text-slate-300"}>
-                        {isOffline ? "—" : `${s?.temperature}°C`}
+                        {isOffline || s?.temperature == null ? "—" : `${s.temperature}°C`}
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-xs text-slate-400">
-                      {isOffline ? "—" : `${s?.connectionLatencyMs}ms`}
+                      {isOffline || s?.connectionLatencyMs == null ? "—" : `${s.connectionLatencyMs}ms`}
                     </td>
                     <td className="px-5 py-3 text-slate-400 text-xs">
-                      {isOffline ? "—" : formatUptime(s?.uptimeSeconds ?? 0)}
+                      {isOffline || s?.uptimeSeconds == null ? "—" : formatUptime(s.uptimeSeconds)}
                     </td>
                   </tr>
                 );

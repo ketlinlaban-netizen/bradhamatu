@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\HotspotUserManager;
+use App\Services\RadiusProvisioningClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 class CustomerPasswordController extends Controller
 {
     public function __construct(
-        private HotspotUserManager $hotspotManager,
+        private RadiusProvisioningClient $radiusProvisioning,
     ) {}
 
     public function changePassword(Request $request): JsonResponse
@@ -27,35 +27,28 @@ class CustomerPasswordController extends Controller
             return response()->json(['error' => 'Current password is incorrect'], 422);
         }
 
-        $customer->update(['password' => $validated['new_password']]);
-
         $serviceAccount = $customer->serviceAccounts()
             ->where('activation_status', 'active')
             ->latest()
             ->first();
 
-        if ($serviceAccount && $serviceAccount->router && $this->hotspotManager->isConfigured()) {
+        if ($serviceAccount) {
+            if (! $this->radiusProvisioning->isConfigured()) {
+                return response()->json(['error' => 'Network account updates are temporarily unavailable.'], 503);
+            }
+
             try {
-                $client = $this->hotspotManager->connectToRouter($serviceAccount->router);
-                $profileName = "bm-{$serviceAccount->rate_limit_rx_kbps}-{$serviceAccount->rate_limit_tx_kbps}";
-                if ($serviceAccount->access_type === 'pppoe') {
-                    $this->hotspotManager->createOrUpdatePppoeSecret(
-                        $client,
-                        $serviceAccount->username,
-                        $validated['new_password'],
-                        $profileName,
-                    );
-                } else {
-                    $this->hotspotManager->createOrUpdateUser($client, $serviceAccount->username, $validated['new_password'], $profileName);
-                }
-                $client->disconnect();
-            } catch (\Throwable $e) {
-                Log::warning('Failed to sync password to router', [
+                $this->radiusProvisioning->changePassword($serviceAccount, $validated['new_password']);
+            } catch (\RuntimeException) {
+                Log::warning('Private RADIUS password update failed', [
                     'customer_id' => $customer->id,
-                    'error' => $e->getMessage(),
+                    'service_account_id' => $serviceAccount->id,
                 ]);
+                return response()->json(['error' => 'Network account update failed. The customer password was not changed.'], 502);
             }
         }
+
+        $customer->update(['password' => $validated['new_password']]);
 
         return response()->json(['success' => true]);
     }

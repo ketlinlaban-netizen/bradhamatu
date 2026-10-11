@@ -26,7 +26,7 @@ interface RouterLinkProps {
 
 export function RouterLink({ routerId, routerName, className = "" }: RouterLinkProps) {
   return (
-    <Link to={`/routers/${routerId}`} className={`text-noc-accent hover:text-blue-400 hover:underline font-medium ${className}`}>
+    <Link to={`/admin/routers/${routerId}`} className={`text-noc-accent hover:text-blue-400 hover:underline font-medium ${className}`}>
       {routerName}
     </Link>
   );
