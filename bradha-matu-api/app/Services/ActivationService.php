@@ -31,7 +31,8 @@ use Illuminate\Support\Str;
 class ActivationService
 {
     public function __construct(
-        private HotspotUserManager $hotspotManager
+        private HotspotUserManager $hotspotManager,
+        private ?RadiusService $radiusService = null,
     ) {}
 
     /**
@@ -79,6 +80,55 @@ class ActivationService
             $expiresAt = now()->addMinutes($snapshot['duration_minutes']);
 
             try {
+                // ── RADIUS provisioning path ────────────────────────────
+                if ($this->radiusService && $this->radiusService->isEnabled()) {
+                    try {
+                        $serviceAccount = ServiceAccount::create([
+                            'id' => Str::uuid()->toString(),
+                            'purchase_id' => $purchase->id,
+                            'customer_id' => $customer->id,
+                            'router_id' => $router->id,
+                            'username' => $username,
+                            'password_hash' => bcrypt($password),
+                            'access_type' => $snapshot['access_type'] ?? 'hotspot',
+                            'rate_limit_rx_kbps' => $snapshot['download_limit_kbps'] ?? 0,
+                            'rate_limit_tx_kbps' => $snapshot['upload_limit_kbps'] ?? 0,
+                            'activation_status' => ServiceAccount::STATUS_ACTIVE,
+                            'activated_at' => now(),
+                            'expires_at' => $expiresAt,
+                        ]);
+
+                        $this->radiusService->provisionServiceAccount($serviceAccount, $snapshot);
+
+                        $purchase->update(['status' => 'activated']);
+
+                        AuditLog::record('system', null, 'activation_success', 'service_account', $serviceAccount->id, [
+                            'router_id' => $router->id,
+                            'username' => $username,
+                            'expires_at' => $expiresAt->toIso8601String(),
+                            'provisioning' => 'radius',
+                        ]);
+
+                        return $serviceAccount;
+                    } catch (\Throwable $e) {
+                        $serviceAccount = $this->createFailedServiceAccount($purchase, 'RADIUS: ' . $e->getMessage(), $router->id);
+
+                        AuditLog::record('system', null, 'activation_failed', 'service_account', $serviceAccount->id, [
+                            'error' => $e->getMessage(),
+                            'router_id' => $router->id,
+                            'provisioning' => 'radius',
+                        ]);
+
+                        Log::error('RADIUS activation failed', [
+                            'purchase_id' => $purchase->id,
+                            'error' => $e->getMessage(),
+                        ]);
+
+                        return $serviceAccount;
+                    }
+                }
+
+                // ── Direct MikroTik provisioning path ───────────────────
                 if (! $this->hotspotManager->isConfigured()) {
                     // Sandbox mode — create account record but mark as pending
                     $serviceAccount = ServiceAccount::create([
@@ -197,7 +247,16 @@ class ActivationService
                 return;
             }
 
-            if ($this->hotspotManager->isConfigured() && $serviceAccount->router) {
+            if ($this->radiusService && $this->radiusService->isEnabled()) {
+                try {
+                    $this->radiusService->deprovisionServiceAccount($serviceAccount);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to deprovision RADIUS user on deactivation', [
+                        'service_account_id' => $serviceAccount->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            } elseif ($this->hotspotManager->isConfigured() && $serviceAccount->router) {
                 try {
                     $client = $this->hotspotManager->connectToRouter($serviceAccount->router);
                     $this->hotspotManager->removeUser($client, $serviceAccount->username);

@@ -29,6 +29,7 @@ use App\Http\Controllers\RouterMetricController;
 use App\Http\Controllers\RouterStatusController;
 use App\Http\Controllers\RouterTrafficController;
 use App\Http\Controllers\RouterWirelessController;
+use App\Http\Controllers\RadiusController;
 use App\Http\Controllers\AppSettingController;
 use App\Http\Controllers\CustomerPasswordController;
 use App\Http\Controllers\SmsTemplateController;
@@ -175,4 +176,17 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.user'])->group(functi
 
     Route::get('/settings', [AppSettingController::class, 'index']);
     Route::put('/settings', [AppSettingController::class, 'update']);
+
+    // ── RADIUS management ───────────────────────────────────────────
+    Route::get('/radius/status', [RadiusController::class, 'status']);
+    Route::get('/radius/nas', [RadiusController::class, 'nasIndex']);
+    Route::post('/radius/nas', [RadiusController::class, 'nasStore']);
+    Route::delete('/radius/nas/{id}', [RadiusController::class, 'nasDestroy']);
+    Route::post('/radius/nas/sync', [RadiusController::class, 'syncNas']);
+    Route::get('/radius/sessions', [RadiusController::class, 'activeSessions']);
+    Route::post('/radius/sessions/disconnect', [RadiusController::class, 'disconnectSession']);
+    Route::get('/radius/accounting', [RadiusController::class, 'accountingHistory']);
+    Route::get('/radius/users/{username}/usage', [RadiusController::class, 'userDataUsage']);
+    Route::get('/radius/post-auth', [RadiusController::class, 'postAuthLog']);
+    Route::get('/radius/groups', [RadiusController::class, 'groups']);
 });

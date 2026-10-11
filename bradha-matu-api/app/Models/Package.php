@@ -49,6 +49,7 @@ class Package extends Model
             'upload_limit_kbps' => $this->upload_limit_kbps,
             'quota_mb' => $this->quota_mb,
             'max_devices' => $this->max_devices,
+            'router_id' => $this->router_id,
         ];
     }
 }
