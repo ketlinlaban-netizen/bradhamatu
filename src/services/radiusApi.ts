@@ -34,6 +34,7 @@ export interface RadiusSession {
   acctoutputoctets: number;
   framedipaddress: string;
   callingstationid: string;
+  acctterminatecause?: string | null;
 }
 
 export interface RadiusGroup {

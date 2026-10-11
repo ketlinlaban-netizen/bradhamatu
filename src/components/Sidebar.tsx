@@ -15,6 +15,9 @@ import {
   ShieldCheck,
   Cable,
   Workflow,
+  Package as PackageIcon,
+  Ticket,
+  Radio,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 
@@ -30,6 +33,15 @@ const navSections: Array<{ label?: string; items: NavItem[] }> = [
     items: [
       { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
       { to: "/admin/billing-flow", label: "Billing Flow", icon: Workflow },
+    ],
+  },
+  {
+    label: "Billing",
+    items: [
+      { to: "/admin/packages", label: "Packages", icon: PackageIcon },
+      { to: "/admin/vouchers", label: "Vouchers", icon: Ticket },
+      { to: "/admin/customers", label: "Customers", icon: Users },
+      { to: "/admin/radius", label: "RADIUS", icon: Radio },
     ],
   },
   {

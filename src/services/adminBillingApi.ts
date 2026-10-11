@@ -21,9 +21,18 @@ export interface RevenueReport {
 export interface AdminBillingPackage {
   id: string;
   name: string;
+  description: string | null;
   price_ksh: number;
+  price_minor: number;
   duration_minutes: number;
+  access_type: string | null;
+  download_kbps: number | null;
+  upload_kbps: number | null;
+  quota_mb: number | null;
+  max_devices: number | null;
+  router_id: string | null;
   is_enabled: boolean;
+  sort_order: number | null;
 }
 
 export interface AdminPayment {

@@ -19,6 +19,10 @@ import { CustomerLoginPage } from "./pages/customer/CustomerLoginPage";
 import { CustomerRegisterPage } from "./pages/customer/CustomerRegisterPage";
 import { CustomerDashboardPage } from "./pages/customer/CustomerDashboardPage";
 import { BillingFlowPage } from "./pages/BillingFlowPage";
+import { PackagesPage } from "./pages/PackagesPage";
+import { VouchersPage } from "./pages/VouchersPage";
+import { CustomersPage } from "./pages/CustomersPage";
+import { RadiusPage } from "./pages/RadiusPage";
 
 export default function App() {
   return (
@@ -45,6 +49,10 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/admin" element={<DashboardPage />} />
           <Route path="/admin/billing-flow" element={<BillingFlowPage />} />
+          <Route path="/admin/packages" element={<PackagesPage />} />
+          <Route path="/admin/vouchers" element={<VouchersPage />} />
+          <Route path="/admin/customers" element={<CustomersPage />} />
+          <Route path="/admin/radius" element={<RadiusPage />} />
           <Route path="/admin/routers" element={<RoutersPage />} />
           <Route path="/admin/routers/:routerId" element={<RouterDetailPage />} />
           <Route path="/admin/offline" element={<OfflineRoutersPage />} />
