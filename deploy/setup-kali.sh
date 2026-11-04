@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bradha Matu Console — Kali Linux Setup Script
+# Bratha Matu Console — Kali Linux Setup Script
 #
 # Installs and configures: PHP 8.3, Composer, MariaDB, nginx,
 # php-fpm, cloudflared, and the Laravel application.
@@ -40,7 +40,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "  Community WiFi Bradha Matu Console — Kali Linux Setup"
+echo "  Community WiFi Bratha Matu Console — Kali Linux Setup"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 

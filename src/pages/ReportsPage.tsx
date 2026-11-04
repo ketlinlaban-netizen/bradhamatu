@@ -3,31 +3,58 @@ import { Download, Router as RouterIcon, Users, Activity, TrendingUp } from "luc
 import { routerService } from "../services/RouterService";
 import type { DashboardSummary, Router, Incident } from "../types";
 import { formatBytes, formatNumber, timeAgo } from "../utils/format";
-import { LoadingSpinner } from "../components/ui";
+
+const REPORT_REFRESH_INTERVAL_MS = 10_000;
 
 export function ReportsPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [routers, setRouters] = useState<Router[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshError, setRefreshError] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      routerService.getDashboardSummary(),
-      routerService.getRouters(),
-      routerService.getIncidents(),
-    ]).then(([s, r, i]) => {
-      setSummary(s);
-      setRouters(r);
-      setIncidents(i);
+    let cancelled = false;
+    let inFlight = false;
+
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+
+      const [summaryResult, routersResult, incidentsResult] = await Promise.allSettled([
+        routerService.getDashboardSummary(),
+        routerService.getRouters(),
+        routerService.getIncidents(),
+      ]);
+      if (cancelled) {
+        inFlight = false;
+        return;
+      }
+
+      const results = [summaryResult, routersResult, incidentsResult];
+      const failed = results.some((result) => result.status === "rejected");
+      if (summaryResult.status === "fulfilled") setSummary(summaryResult.value);
+      if (routersResult.status === "fulfilled") setRouters(routersResult.value);
+      if (incidentsResult.status === "fulfilled") setIncidents(incidentsResult.value);
+      if (results.some((result) => result.status === "fulfilled")) setLastUpdated(new Date());
+
+      setRefreshError(failed);
       setLoading(false);
-    });
+      inFlight = false;
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), REPORT_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
-  if (loading) return <LoadingSpinner label="Generating reports..." />;
-
   const reportCards = [
-    { title: "Network Summary", desc: "Overview of all routers, clients, and traffic", icon: TrendingUp, data: `Routers: ${summary?.totalRouters} | Online: ${summary?.online} | Offline: ${summary?.offline} | Clients: ${formatNumber(summary?.totalClients ?? 0)}` },
+    { title: "Network Summary", desc: "Overview of all routers, clients, and traffic", icon: TrendingUp, data: `Routers: ${summary?.totalRouters} | Online: ${summary?.online} | Offline: ${summary?.offline} | Stale: ${summary?.stale} | Unknown: ${summary?.unknown} | Clients: ${formatNumber(summary?.totalClients ?? 0)}` },
     { title: "Router Inventory", desc: "Full list of all routers with details", icon: RouterIcon, data: `${routers.length} routers across ${new Set(routers.map((r) => r.location)).size} locations` },
     { title: "Incident Log", desc: "All active and recent incidents", icon: Activity, data: `${incidents.length} incidents (${incidents.filter((i) => !i.resolvedAt).length} active)` },
     { title: "Client Census", desc: "Total connected clients network-wide", icon: Users, data: `${formatNumber(summary?.totalClients ?? 0)} clients connected` },
@@ -35,7 +62,7 @@ export function ReportsPage() {
 
   const handleExport = () => {
     const lines: string[] = [];
-    lines.push("COMMUNITY WIFI BRADHA MATU — NETWORK REPORT");
+    lines.push("COMMUNITY WIFI BRATHA MATU — NETWORK REPORT");
     lines.push(`Generated: ${new Date().toISOString()}`);
     lines.push("");
     lines.push("=== SUMMARY ===");
@@ -43,6 +70,8 @@ export function ReportsPage() {
     lines.push(`Online: ${summary?.online}`);
     lines.push(`Offline: ${summary?.offline}`);
     lines.push(`Degraded: ${summary?.degraded}`);
+    lines.push(`Stale: ${summary?.stale}`);
+    lines.push(`Unknown: ${summary?.unknown}`);
     lines.push(`Total Clients: ${summary?.totalClients}`);
     lines.push(`Total Traffic: ${formatBytes(summary?.totalTrafficBytes ?? 0)}`);
     lines.push(`Uptime: ${summary?.uptimePercent}%`);
@@ -73,6 +102,16 @@ export function ReportsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-100">Reports</h1>
           <p className="text-sm text-slate-400 mt-1">Read-only network reports and exportable summaries.</p>
+          {loading && <p className="mt-1 text-xs text-slate-500">Refreshing report data…</p>}
+          {!loading && (
+            <p role={refreshError ? "alert" : "status"} className={`mt-1 text-xs ${refreshError ? "text-amber-400" : "text-slate-500"}`}>
+              {refreshError
+                ? `Some report data could not be refreshed. Showing the last successful values${lastUpdated ? ` from ${lastUpdated.toLocaleTimeString()}` : ""}.`
+                : lastUpdated
+                  ? `Live · Last refreshed ${lastUpdated.toLocaleTimeString()} · refreshes every 10 seconds`
+                  : "Waiting for report data…"}
+            </p>
+          )}
         </div>
         <button onClick={handleExport} className="btn-primary flex items-center gap-2 text-sm">
           <Download className="w-4 h-4" />
@@ -104,7 +143,7 @@ export function ReportsPage() {
         <div className="px-5 py-4 border-b border-noc-border">
           <h2 className="text-lg font-semibold text-slate-100">Full Router Inventory Report</h2>
         </div>
-        <div className="overflow-x-auto">
+        <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-noc-border">
@@ -129,7 +168,7 @@ export function ReportsPage() {
                     <span className={`text-xs font-medium ${
                       r.status === "online" ? "text-green-400" :
                       r.status === "offline" ? "text-red-400" :
-                      r.status === "degraded" ? "text-amber-400" : "text-slate-400"
+                      r.status === "degraded" || r.status === "stale" ? "text-amber-400" : "text-slate-400"
                     }`}>
                       {r.status}
                     </span>

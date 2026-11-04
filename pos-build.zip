@@ -1,0 +1,135 @@
+  # Bradha Matu router-originated telemetry for RouterOS 7.23.1
+  # Read-only collection; HTTPS certificate verification is mandatory.
+  # Import stores the script only. Run it manually and verify ingestion before scheduling.
+  # Requires the router clock to be synchronized and configured to Etc/UTC.
+  :if ([:len [/system script find where name="bm-telemetry-3fdf0dd4"]] > 0) do={ :error "Telemetry script already exists; inspect and remove it manually before reinstalling." }
+  /system script add name="bm-telemetry-3fdf0dd4" policy=ftp,read source={
+    :local routerId "3fdf0dd4-d2ab-4835-9b3a-61e0227318e2"
+    :local token "7f0247f9b0d74f25f6184b8d602cf19205f94532a8fa832a90ecb34682ea874a"
+    :local scriptName "bm-telemetry-3fdf0dd4"
+    :local runningJobs [/system script job find where script=$scriptName]
+    :if ([:len $runningJobs] > 1) do={ :return }
+    :local clockDate [/system clock get date]
+    :local clockTime [/system clock get time]
+    :if ([/system clock get time-zone-name] != "Etc/UTC") do={ :log error "Bradha telemetry: set and verify the router timezone to Etc/UTC"; :return }
+    :local isoDate ""
+    :if ([:pick $clockDate 4 5] = "-") do={
+        :set isoDate $clockDate
+    } else={
+    :local monthText [:pick $clockDate 0 3]
+    :local monthNumber "00"
+    :if ($monthText = "jan") do={ :set monthNumber "01" }
+    :if ($monthText = "feb") do={ :set monthNumber "02" }
+    :if ($monthText = "mar") do={ :set monthNumber "03" }
+    :if ($monthText = "apr") do={ :set monthNumber "04" }
+    :if ($monthText = "may") do={ :set monthNumber "05" }
+    :if ($monthText = "jun") do={ :set monthNumber "06" }
+    :if ($monthText = "jul") do={ :set monthNumber "07" }
+    :if ($monthText = "aug") do={ :set monthNumber "08" }
+    :if ($monthText = "sep") do={ :set monthNumber "09" }
+    :if ($monthText = "oct") do={ :set monthNumber "10" }
+    :if ($monthText = "nov") do={ :set monthNumber "11" }
+    :if ($monthText = "dec") do={ :set monthNumber "12" }
+    :if ($monthNumber = "00") do={ :log error "Bradha telemetry: unsupported router date format"; :return }
+    :local day [:pick $clockDate 4 6]
+    :local year [:pick $clockDate 7 11]
+        :set isoDate ($year . "-" . $monthNumber . "-" . $day)
+    }
+    :local observedAt ($isoDate . "T" . $clockTime . "+00:00")
+    :local systemData {
+        "identity"=[/system identity get name];
+        "version"=[/system resource get version];
+        "board_name"=[/system resource get board-name];
+        "architecture"=[/system resource get architecture-name];
+        "cpu_load"=[:tonum [/system resource get cpu-load]];
+        "uptime"=[/system resource get uptime];
+        "total_memory"=[:tonum [/system resource get total-memory]];
+        "free_memory"=[:tonum [/system resource get free-memory]];
+        "total_hdd_space"=[:tonum [/system resource get total-hdd-space]];
+        "free_hdd_space"=[:tonum [/system resource get free-hdd-space]]
+    }
+    :local interfaces [:toarray ""]
+    :foreach interfaceId in=[/interface find] do={
+        :local interfaceName [/interface get $interfaceId name]
+        :local ipAddress ""
+        :local addresses [/ip address find where interface=$interfaceName]
+        :if ([:len $addresses] > 0) do={
+            :local address [/ip address get [:pick $addresses 0] address]
+            :local slashPosition [:find $address "/"]
+            :if ($slashPosition > 0) do={ :set ipAddress [:pick $address 0 $slashPosition] }
+        }
+        :local interfaceData {
+            "id"=[:tostr $interfaceId];
+            "name"=$interfaceName;
+            "type"=[/interface get $interfaceId type];
+            "running"=[/interface get $interfaceId running];
+            "disabled"=[/interface get $interfaceId disabled];
+            "mac_address"=[/interface get $interfaceId mac-address];
+            "rx_bytes"=[:tonum [/interface get $interfaceId rx-byte]];
+            "tx_bytes"=[:tonum [/interface get $interfaceId tx-byte]];
+            "ip_address"=$ipAddress
+        }
+        :set interfaces ($interfaces, $interfaceData)
+        :if ([:len $interfaces] > 64) do={ :log error "Bradha telemetry: interface limit exceeded"; :return }
+    }
+    :local leases [:toarray ""]
+    :foreach leaseId in=[/ip dhcp-server lease find] do={
+        :local leaseStatus [/ip dhcp-server lease get $leaseId status]
+        :if (($leaseStatus != "bound") && ($leaseStatus != "waiting") && ($leaseStatus != "offered")) do={ :set leaseStatus "unknown" }
+        :local leaseData {
+            "mac_address"=[/ip dhcp-server lease get $leaseId mac-address];
+            "host_name"=[/ip dhcp-server lease get $leaseId host-name];
+            "address"=[/ip dhcp-server lease get $leaseId address];
+            "interface"=[/ip dhcp-server lease get $leaseId interface];
+            "status"=$leaseStatus;
+            "expires_after"=[/ip dhcp-server lease get $leaseId expires-after]
+        }
+        :set leases ($leases, $leaseData)
+        :if ([:len $leases] > 512) do={ :log error "Bradha telemetry: DHCP lease limit exceeded"; :return }
+    }
+    :local wirelessClients [:toarray ""]
+    :do {
+        :foreach clientId in=[/interface wireless registration-table find] do={
+            :local clientData {
+                "id"=[:tostr $clientId];
+                "interface"=[/interface wireless registration-table get $clientId interface];
+                "mac_address"=[/interface wireless registration-table get $clientId mac-address];
+                "signal_strength"=[:tonum [/interface wireless registration-table get $clientId signal-strength]];
+                "bytes"=[/interface wireless registration-table get $clientId bytes]
+            }
+            :set wirelessClients ($wirelessClients, $clientData)
+            :if ([:len $wirelessClients] > 256) do={ :log error "Bradha telemetry: wireless client limit exceeded"; :return }
+        }
+    } on-error={
+        :log warning "Bradha telemetry: wireless registration table unavailable"
+    }
+    :local snapshotId ($isoDate . "_" . [:pick $clockTime 0 2] . [:pick $clockTime 3 5] . [:pick $clockTime 6 8] . "_" . [/system resource get uptime])
+    :local payload {
+        "schema_version"=1;
+        "router_id"=$routerId;
+        "snapshot_id"=$snapshotId;
+        "observed_at"=$observedAt;
+        "system"=$systemData;
+        "interfaces"=$interfaces;
+        "dhcp_leases"=$leases;
+        "wireless_clients"=$wirelessClients
+    }
+    :local json [:serialize to=json value=$payload]
+    :if ([:len $json] > 48000) do={ :log error "Bradha telemetry: payload limit exceeded"; :return }
+    :do {
+        /tool fetch url="https://onlineconsole.pandatechs.co.ke/api/v1/internal/mikrotik/telemetry" http-method=post http-header-field=("Content-Type: application/json,Authorization: Bearer " . $token) http-data=$json check-certificate=yes keep-result=no output=none idle-timeout=10s
+    } on-error={
+        :log warning "Bradha telemetry: HTTPS submission failed; next scheduled run will retry"
+    }
+}
+# Manual one-shot test, after import and certificate checks:
+# /system script run bm-telemetry-3fdf0dd4
+# Verify successful ingestion in the application before enabling a scheduler.
+# Deferred scheduler command (60s); run only after the manual report is verified:
+# :if ([:len [/system scheduler find where name="bm-telemetry-3fdf0dd4-schedule"]] > 0) do={ :error "Scheduler already exists; inspect it manually." }
+# /system scheduler add name="bm-telemetry-3fdf0dd4-schedule" interval=60s start-time=startup on-event="/system script run bm-telemetry-3fdf0dd4" policy=ftp,read
+# Verify manually: /system script print detail where name="bm-telemetry-3fdf0dd4"
+# Verify manually after enabling: /system scheduler print detail where name="bm-telemetry-3fdf0dd4-schedule"
+# Rollback, only after reviewing the exact names:
+# /system scheduler remove [find where name="bm-telemetry-3fdf0dd4-schedule"]
+# /system script remove [find where name="bm-telemetry-3fdf0dd4"]

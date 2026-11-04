@@ -1,0 +1,15 @@
+# BRADHA_HOME_ROOT_ROUTING_V1
+Options -Indexes -MultiViews
+DirectoryIndex index.html index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    RewriteRule ^(?:bradha-matu-api|public_html/onlineconsole\.pandatechs\.co\.ke/bradha-matu-api)(?:/|$) - [F,L,NC]
+    RewriteRule ^public_html/onlineconsole\.pandatechs\.co\.ke/ - [L]
+    RewriteRule ^(.*)$ public_html/onlineconsole.pandatechs.co.ke/$1 [L]
+</IfModule>
+
+<FilesMatch "^(?:\.|.*\.zip$|DEPLOYMENT\.md$|php\.ini$)">
+    Require all denied
+</FilesMatch>

@@ -1,10 +1,10 @@
 # ───────────────────────────────────────────────────────────────────
-# Community WiFi Bradha Matu — Laravel .env Template (Production)
+# Community WiFi Bratha Matu — Laravel .env Template (Production)
 # ───────────────────────────────────────────────────────────────────
 # Copy to .env and fill in real values. NEVER commit real secrets.
 # This file is a template — the actual .env must never be in git.
 
-APP_NAME="Bradha Matu Console"
+APP_NAME="Bratha Matu Console"
 APP_ENV=production
 APP_KEY=
 APP_DEBUG=false

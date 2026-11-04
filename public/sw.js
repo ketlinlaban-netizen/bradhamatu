@@ -1,11 +1,19 @@
-const CACHE_NAME = "bradha-matu-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/pwa-icon.svg"];
+const CACHE_NAME = "bradha-matu-shell-v2";
+const APP_SHELL = [
+  "/",
+  "/manifest.webmanifest",
+  "/pwa-icon.svg",
+  "/pwa-icon-192.png",
+  "/pwa-icon-512.png",
+  "/pwa-icon-maskable-512.png",
+];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)),
-  );
-  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -33,6 +41,7 @@ self.addEventListener("fetch", (event) => {
     request.method !== "GET" ||
     url.origin !== self.location.origin ||
     url.pathname.startsWith("/api/")
+    || url.pathname.startsWith("/sanctum/")
   ) {
     return;
   }
@@ -42,7 +51,10 @@ self.addEventListener("fetch", (event) => {
       fetch(request).catch(async () => {
         const shell = await caches.match("/");
         if (!shell) {
-          throw new Error("Offline application shell is not cached");
+          return new Response("The app shell is unavailable offline.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
         }
         return shell;
       }),
@@ -50,7 +62,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (["script", "style", "image", "font"].includes(request.destination)) {
+  const isHashedBuildAsset = url.pathname.startsWith("/assets/")
+    && /-[A-Za-z0-9_-]+\.(?:js|css)$/.test(url.pathname);
+  const isPublicAppIcon = /^\/pwa-icon(?:-[\w-]+)?\.(?:svg|png)$/.test(url.pathname);
+
+  if (isHashedBuildAsset || isPublicAppIcon || url.pathname === "/manifest.webmanifest") {
     event.respondWith(
       caches.match(request).then(async (cached) => {
         if (cached) return cached;

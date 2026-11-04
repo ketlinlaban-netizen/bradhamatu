@@ -26,6 +26,8 @@ export class RouterReadOnlyGuard {
     "getStatus",
     "getInterfaces",
     "getClients",
+    "getAllClients",
+    "refreshAllClients",
     "getTraffic",
     "getWireless",
     "getMetrics",

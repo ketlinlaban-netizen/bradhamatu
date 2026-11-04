@@ -3,10 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\Router;
-use App\Services\MikroTikApiClient;
+use App\Services\RouterApiException;
+use App\Services\RouterConnectionTester;
+use App\Services\RouterDestinationPolicy;
+use App\Services\RouterTelemetryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * MikroTikConfigController — manage MikroTik router configurations
@@ -23,28 +28,74 @@ use Illuminate\Support\Str;
  */
 class MikroTikConfigController extends Controller
 {
+    public function __construct(
+        private RouterConnectionTester $connectionTester,
+        private RouterDestinationPolicy $destinationPolicy,
+        private RouterTelemetryService $telemetry,
+    ) {}
+
     /**
      * List all router configs with masked passwords.
      */
     public function index(): JsonResponse
     {
         $routers = Router::orderBy('created_at', 'desc')->get();
+        $staleBefore = now()->subSeconds(max(15, (int) config('mikrotik.telemetry_stale_seconds', 15)));
 
-        $data = $routers->map(fn ($r) => [
-            'id' => $r->id,
-            'name' => $r->name,
-            'host' => $r->ip_address,
-            'apiPort' => $r->api_port ?? 8728,
-            'useTls' => (bool) $r->api_use_tls,
-            'verifyCert' => (bool) $r->verify_cert,
-            'username' => $r->api_username,
-            'passwordMasked' => $r->api_password ? '••••••••' : null,
-            'location' => $r->location,
-            'site' => $r->site,
-            'isConnected' => (bool) ($r->status_override === 'online'),
-            'lastSeenAt' => $r->last_seen_at?->toIso8601String(),
-            'createdAt' => $r->created_at?->toIso8601String(),
-        ]);
+        $data = $routers->map(function ($r) use ($staleBefore): array {
+            $transportConfigured = in_array($r->api_transport, Router::SUPPORTED_API_TRANSPORTS, true);
+            $lastSuccessfulCheck = $r->api_transport === 'telemetry'
+                ? $r->telemetry_received_at
+                : $r->last_seen_at;
+            $isFresh = $lastSuccessfulCheck !== null && $lastSuccessfulCheck->gte($staleBefore);
+            $healthStatus = ! $transportConfigured
+                ? 'misconfigured'
+                : ($r->api_transport === 'telemetry'
+                    ? ($r->telemetry_received_at === null ? 'unknown' : ($isFresh ? 'online' : 'stale'))
+                    : ($r->last_error_category === 'authentication_failed'
+                        ? 'unauthorized'
+                        : ($r->status_override === 'offline'
+                            ? 'offline'
+                            : ($isFresh && $r->status_override === 'degraded'
+                                ? 'degraded'
+                                : ($r->status_override === 'online' && $isFresh ? 'online' : 'stale')))));
+
+            return [
+                'id' => $r->id,
+                'name' => $r->name,
+                'host' => $r->ip_address,
+                'apiTransport' => $r->api_transport,
+                'transportConfigured' => $transportConfigured,
+                'apiPort' => $r->api_port ?? 8728,
+                'useTls' => (bool) $r->api_use_tls,
+                'verifyCert' => (bool) $r->verify_cert,
+                'username' => $r->api_username,
+                'passwordMasked' => $r->api_transport === 'telemetry'
+                    ? null
+                    : ($r->api_password ? '••••••••' : null),
+                'location' => $r->location,
+                'site' => $r->site,
+                'isConnected' => $healthStatus === 'online',
+                'healthStatus' => $healthStatus,
+                'lastSeenAt' => $r->last_seen_at?->toIso8601String(),
+                'lastSuccessfulCheckAt' => $lastSuccessfulCheck?->toIso8601String(),
+                'telemetryEnabled' => $r->api_transport === 'telemetry',
+                'telemetryObservedAt' => $r->telemetry_observed_at?->toIso8601String(),
+                'telemetryReceivedAt' => $r->telemetry_received_at?->toIso8601String(),
+                'telemetryCredentialIssued' => $r->telemetry_token_hash !== null,
+                'telemetryEndpoint' => $r->api_transport === 'telemetry'
+                    ? config('mikrotik.telemetry_endpoint')
+                    : null,
+                'telemetryStale' => $r->api_transport === 'telemetry'
+                    && ($r->telemetry_received_at === null
+                        || $r->telemetry_received_at->lt(now()->subSeconds(max(15, (int) config('mikrotik.telemetry_stale_seconds', 15))))),
+                'monitoringEnabled' => (bool) $r->monitoring_enabled,
+                'lastRouterosVersion' => $r->last_routeros_version,
+                'lastErrorCategory' => $r->last_error_category
+                    ?? (in_array($r->api_transport, Router::SUPPORTED_API_TRANSPORTS, true) ? null : 'transport_misconfigured'),
+                'createdAt' => $r->created_at?->toIso8601String(),
+            ];
+        });
 
         return response()->json($data);
     }
@@ -58,40 +109,65 @@ class MikroTikConfigController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'host' => 'required|string|max:255',
-            'apiPort' => 'sometimes|integer|min:1|max:65535',
+            'routerIdentity' => 'required_if:apiTransport,telemetry|nullable|string|max:128',
+            'apiTransport' => ['sometimes', Rule::in(['binary', 'rest', 'telemetry'])],
+            'apiPort' => ['sometimes', 'integer', Rule::in(config('mikrotik.allowed_ports', [8728, 8729]))],
             'useTls' => 'boolean',
-            'verifyCert' => 'sometimes|boolean',
-            'username' => 'required|string|max:255',
-            'password' => 'required|string|min:1|max:255',
+            'verifyCert' => 'sometimes|accepted',
+            'username' => 'required_unless:apiTransport,telemetry|string|max:255',
+            'password' => 'required_unless:apiTransport,telemetry|string|min:1|max:255',
             'location' => 'nullable|string|max:255',
             'site' => 'nullable|string|max:255',
         ]);
 
-        $useTls = (bool) ($validated['useTls'] ?? false);
+        try {
+            $this->destinationPolicy->validateInput($validated['host']);
+        } catch (RouterApiException $exception) {
+            throw ValidationException::withMessages(['host' => $exception->safeMessage]);
+        }
+
+        $apiTransport = $validated['apiTransport']
+            ?? (config('mikrotik.provider') === 'rest' ? 'rest' : 'binary');
+        if ($apiTransport === 'telemetry') {
+            $apiPort = (int) ($validated['apiPort'] ?? 8729);
+            $useTls = true;
+        } else {
+            $useTls = (bool) ($validated['useTls'] ?? true);
+            $apiPort = (int) ($validated['apiPort'] ?? ($useTls ? 8729 : 8728));
+        }
+        if ($apiTransport === 'binary' && (($apiPort === 8728 && $useTls) || ($apiPort === 8729 && ! $useTls))) {
+            throw ValidationException::withMessages([
+                'apiPort' => 'Port 8728 is plain Binary API and port 8729 is API-SSL; select a matching TLS mode or a verified custom service port.',
+            ]);
+        }
+
         $router = Router::create([
             'id' => Str::uuid()->toString(),
             'name' => $validated['name'],
-            'identity' => $validated['name'],
+            'identity' => $validated['routerIdentity'] ?? $validated['name'],
             'ip_address' => $validated['host'],
-            'api_port' => $validated['apiPort'] ?? ($useTls ? 8729 : 8728),
+            'api_transport' => $apiTransport,
+            'api_port' => $apiPort,
             'api_use_tls' => $useTls,
-            'api_username' => $validated['username'],
-            'api_password' => $validated['password'],
+            'api_username' => $validated['username'] ?? 'telemetry-only',
+            'api_password' => $validated['password'] ?? bin2hex(random_bytes(32)),
             'location' => $validated['location'] ?? null,
             'site' => $validated['site'] ?? null,
             'use_ssl' => true,
-            'verify_cert' => (bool) ($validated['verifyCert'] ?? true),
+            'verify_cert' => true,
+            'monitoring_enabled' => true,
         ]);
 
         return response()->json([
             'id' => $router->id,
             'name' => $router->name,
             'host' => $router->ip_address,
+            'apiTransport' => $router->api_transport,
             'apiPort' => $router->api_port,
             'useTls' => (bool) $router->api_use_tls,
             'verifyCert' => (bool) $router->verify_cert,
             'username' => $router->api_username,
-            'passwordMasked' => '••••••••',
+            'passwordMasked' => $apiTransport === 'telemetry' ? null : '••••••••',
             'location' => $router->location,
             'site' => $router->site,
             'isConnected' => false,
@@ -118,12 +194,10 @@ class MikroTikConfigController extends Controller
     /**
      * Test the connection to a MikroTik router and return live system data.
      *
-     * This attempts a binary API connection (TCP 8728/8729). If successful,
-     * it fetches /system/resource/print and /system/identity/print to
-     * return real router data. If the connection fails, it returns the
-     * error message so the UI can display it.
+     * This tests the server-selected live transport and fetches identity and
+     * system resource data. If it fails, return a safe error for the UI.
      *
-     * This is READ-ONLY: only print commands are sent. No mutations.
+     * This is READ-ONLY: only fixed print/one-shot monitor reads are sent.
      */
     public function connect(string $id): JsonResponse
     {
@@ -131,70 +205,54 @@ class MikroTikConfigController extends Controller
         if (! $router) {
             return response()->json(['error' => 'Configuration not found'], 404);
         }
-
-        $port = $router->api_port ?? 8728;
-        $useTls = (bool) $router->api_use_tls;
-        $timeout = (int) config('mikrotik.timeout', 10);
-
-        try {
-            $client = new MikroTikApiClient(
-                $router->ip_address,
-                $port,
-                $useTls,
-                $timeout,
-                (bool) $router->verify_cert,
-            );
-            $client->connect($router->api_username, $router->api_password);
-
-            // Fetch system resource (CPU, memory, uptime, version, etc.)
-            $resource = $client->print('/system/resource/print');
-            $identity = $client->print('/system/identity/print');
-            $client->disconnect();
-
-            // Update last_seen_at
-            $router->update([
-                'last_seen_at' => now(),
-                'status_override' => 'online',
-            ]);
-
-            $res = $resource[0] ?? [];
-            $idName = $identity[0]['name'] ?? $router->name;
+        if ($router->api_transport === 'telemetry') {
+            $telemetryStatus = $this->telemetry->status($router);
+            $isFresh = ($telemetryStatus['telemetryStatus'] ?? null) === 'online';
 
             return response()->json([
-                'success' => true,
-                'state' => 'established',
-                'message' => 'Connection established. READ-ONLY SESSION.',
+                'success' => $isFresh,
+                'state' => $isFresh ? 'telemetry' : 'waiting',
+                'category' => $isFresh ? null : ($router->telemetry_received_at === null ? 'telemetry_waiting' : 'telemetry_stale'),
+                'message' => $isFresh
+                    ? 'Recent authenticated telemetry was received; no inbound router API connection was attempted.'
+                    : ($router->telemetry_received_at === null
+                        ? 'No authenticated router-initiated telemetry has been received yet; status is unknown.'
+                        : 'No recent telemetry report was received; reachability is unconfirmed.'),
                 'readOnly' => true,
-                'router' => [
-                    'id' => $router->id,
-                    'name' => $router->name,
-                    'identity' => $idName,
-                    'host' => $router->ip_address,
-                    'model' => $res['board-name'] ?? 'Unknown',
-                    'serialNumber' => $res['serial-number'] ?? '',
-                    'routerosVersion' => $res['version'] ?? 'Unknown',
-                    'architecture' => $res['architecture'] ?? '',
-                    'cpuLoad' => (int) ($res['cpu-load'] ?? 0),
-                    'uptime' => $res['uptime'] ?? '',
-                    'totalMemory' => (int) ($res['total-memory'] ?? 0),
-                    'freeMemory' => (int) ($res['free-memory'] ?? 0),
-                    'totalHdd' => (int) ($res['total-hdd-space'] ?? 0),
-                    'freeHdd' => (int) ($res['free-hdd-space'] ?? 0),
-                    'cpuCount' => (int) ($res['cpu-count'] ?? 0),
-                    'platform' => $res['platform'] ?? '',
-                ],
+                'router' => null,
+                'telemetryReceivedAt' => $router->telemetry_received_at?->toIso8601String(),
             ]);
-        } catch (\Exception $e) {
-            // Mark as offline
-            $router->update(['status_override' => 'offline']);
+        }
 
+        if (! in_array(config('mikrotik.provider'), ['mikrotik', 'rest'], true)) {
             return response()->json([
                 'success' => false,
                 'state' => 'failed',
-                'message' => $e->getMessage(),
+                'category' => 'mock_mode',
+                'message' => 'Connection tests are disabled while the router provider is in mock mode.',
                 'readOnly' => true,
                 'router' => null,
-            ], 200);
+            ], 409);
         }
+
+        return response()->json($this->connectionTester->test($router));
+    }
+
+    public function issueTelemetryCredential(string $id): JsonResponse
+    {
+        $router = Router::query()->whereKey($id)->first();
+        if (! $router) {
+            return response()->json(['error' => 'Configuration not found'], 404);
+        }
+
+        $token = $this->telemetry->issueCredential($router);
+
+        return response()->json([
+            'routerId' => $router->id,
+            'endpoint' => $this->telemetry->endpoint(),
+            'token' => $token,
+            'issuedAt' => now()->toIso8601String(),
+            'warning' => 'This token is shown once. Store it only in the reviewed RouterOS script and rotate it if exposed.',
+        ]);
     }
 }

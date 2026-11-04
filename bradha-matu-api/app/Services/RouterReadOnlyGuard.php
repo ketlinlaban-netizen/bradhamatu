@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
+
 /**
  * RouterReadOnlyGuard
  *
@@ -41,9 +43,31 @@ class RouterReadOnlyGuard
         'searchRouters',
     ];
 
+    private const ALLOWED_ROUTEROS_COMMANDS = [
+        '/system/identity/print',
+        '/system/resource/print',
+        '/interface/print',
+        '/interface/monitor-traffic',
+        '/ip/address/print',
+        '/ip/route/print',
+        '/ip/dhcp-server/lease/print',
+        '/ppp/secret/print',
+        '/ppp/active/print',
+        '/interface/wireless/print',
+        '/interface/wireless/registration-table/print',
+    ];
+
     public function classify(string $operation): string
     {
-        return in_array($operation, self::ALLOWED_OPERATIONS) ? 'READ' : 'WRITE';
+        if (in_array($operation, self::ALLOWED_OPERATIONS, true)) {
+            return 'READ';
+        }
+
+        if (in_array($operation, self::ALLOWED_ROUTEROS_COMMANDS, true)) {
+            return 'READ';
+        }
+
+        return 'WRITE';
     }
 
     public function enforce(string $operation): void
@@ -51,5 +75,23 @@ class RouterReadOnlyGuard
         if ($this->classify($operation) === 'WRITE') {
             throw new ReadOnlyGuardException($operation);
         }
+    }
+
+    public function enforceRouterOsCommand(string $command): void
+    {
+        if (! in_array($command, self::ALLOWED_ROUTEROS_COMMANDS, true)) {
+            Log::warning('Blocked unapproved RouterOS command.', [
+                'command' => $command,
+            ]);
+            throw new ReadOnlyGuardException($command);
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function allowedRouterOsCommands(): array
+    {
+        return self::ALLOWED_ROUTEROS_COMMANDS;
     }
 }

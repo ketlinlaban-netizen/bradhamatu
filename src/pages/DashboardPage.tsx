@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Router as RouterIcon,
@@ -9,42 +9,70 @@ import {
   HardDrive,
   Activity,
   TrendingUp,
+  Clock,
 } from "lucide-react";
 import { routerService } from "../services/RouterService";
-import type { DashboardSummary, Router } from "../types";
-import { formatBytes, formatNumber, timeAgo, statusBadge } from "../utils/format";
-import { LoadingSpinner } from "../components/ui";
+import type { DashboardSummary, Router, RouterClient } from "../types";
+import { formatBytes, formatNumber, formatUptime, timeAgo, statusBadge } from "../utils/format";
 
 export function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [routers, setRouters] = useState<Router[]>([]);
+  const [clientCounts, setClientCounts] = useState<Record<string, number>>({});
+  const [clientCountsLoaded, setClientCountsLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    Promise.all([routerService.getDashboardSummary(), routerService.getRouters()]).then(
-      ([s, r]) => {
-        setSummary(s);
-        setRouters(r);
-        setLoading(false);
-      }
-    );
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    setClientCountsLoaded(false);
+    const [summaryResult, routersResult, clientsResult] = await Promise.allSettled([
+      routerService.getDashboardSummary(),
+      routerService.getRouters(),
+      routerService.getAllClients(),
+    ]);
+
+    if (summaryResult.status === "fulfilled") setSummary(summaryResult.value);
+    else setLoadError(true);
+
+    if (routersResult.status === "fulfilled") setRouters(routersResult.value);
+    else setLoadError(true);
+
+    if (clientsResult.status === "fulfilled") {
+      setClientCounts(clientsResult.value.reduce<Record<string, number>>((counts, client: RouterClient) => {
+        if ((client.status ?? "unknown") === "online" && !client.monitoringStale) {
+          counts[client.routerId] = (counts[client.routerId] ?? 0) + 1;
+        }
+        return counts;
+      }, {}));
+      setClientCountsLoaded(true);
+    } else {
+      setLoadError(true);
+    }
+
+    setLoading(false);
   }, []);
 
-  if (loading) return <LoadingSpinner label="Loading network overview..." />;
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
 
   const stats = [
-    { label: "Total Routers", value: summary ? formatNumber(summary.totalRouters) : "—", icon: RouterIcon, color: "text-blue-400" },
-    { label: "Online", value: summary ? formatNumber(summary.online) : "—", icon: Wifi, color: "text-green-400" },
-    { label: "Offline", value: summary ? formatNumber(summary.offline) : "—", icon: WifiOff, color: "text-red-400" },
-    { label: "Degraded", value: summary ? formatNumber(summary.degraded) : "—", icon: AlertTriangle, color: "text-amber-400" },
-    { label: "Total Clients", value: summary ? formatNumber(summary.totalClients) : "—", icon: Users, color: "text-cyan-400" },
-    { label: "Total Traffic", value: summary ? formatBytes(summary.totalTrafficBytes) : "—", icon: HardDrive, color: "text-purple-400" },
-    { label: "Uptime", value: summary ? `${summary.uptimePercent}%` : "—", icon: Activity, color: "text-emerald-400" },
+    { label: "Total Routers", value: summary ? formatNumber(summary.totalRouters) : "—", icon: RouterIcon, color: "text-blue-400", to: "/routers" },
+    { label: "Online", value: summary ? formatNumber(summary.online) : "—", icon: Wifi, color: "text-green-400", to: "/routers?status=online" },
+    { label: "Offline", value: summary ? formatNumber(summary.offline) : "—", icon: WifiOff, color: "text-red-400", to: "/routers?status=offline" },
+    { label: "Degraded", value: summary ? formatNumber(summary.degraded) : "—", icon: AlertTriangle, color: "text-amber-400", to: "/routers?status=degraded" },
+    { label: "Stale", value: summary ? formatNumber(summary.stale) : "—", icon: Clock, color: "text-orange-300", to: "/routers?status=stale" },
+    { label: "Unknown", value: summary ? formatNumber(summary.unknown) : "—", icon: Activity, color: "text-slate-400", to: "/routers?status=unknown" },
+    { label: "Total Clients", value: summary ? formatNumber(summary.totalClients) : "—", icon: Users, color: "text-cyan-400", to: "/clients" },
+    { label: "Total Traffic", value: summary ? formatBytes(summary.totalTrafficBytes) : "—", icon: HardDrive, color: "text-purple-400", to: "/traffic" },
+    { label: "Uptime", value: summary ? `${summary.uptimePercent}%` : "—", icon: Activity, color: "text-emerald-400", to: "/network-health" },
   ];
 
   const sortedRouters = [...routers].sort((a, b) => {
-    // offline first, then degraded, then online
-    const order = { offline: 0, degraded: 1, online: 2, unknown: 3 };
+    // Confirmed offline first; stale and unknown are not reachability claims.
+    const order = { offline: 0, degraded: 1, stale: 2, unknown: 3, online: 4 };
     return order[a.status] - order[b.status];
   });
 
@@ -53,20 +81,40 @@ export function DashboardPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Dashboard</h1>
         <p className="text-sm text-slate-400 mt-1">Real-time network operations overview — read-only monitoring.</p>
+        {loading && <p className="mt-1 text-xs text-slate-500">Refreshing live network data…</p>}
       </div>
+
+      {loadError && (
+        <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Some dashboard information could not be loaded. Unavailable values are shown as dashes.
+          <button type="button" onClick={() => void loadDashboard()} className="ml-2 underline hover:text-white">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {summary?.dataSource === "mock" ? (
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Demo data is enabled. These routers and metrics are fictional; no physical router was contacted.
+        </div>
+      ) : summary?.dataSource === "live" ? (
+        <div role="status" className="rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-3 text-sm text-green-200">
+          Live provider enabled. Data comes from the configured server-side router provider.
+        </div>
+      ) : null}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="stat-card">
+            <Link key={stat.label} to={stat.to} className="stat-card block cursor-pointer transition-colors hover:border-noc-accent/50">
               <div className="flex items-center justify-between mb-2">
                 <Icon className={`w-5 h-5 ${stat.color}`} />
               </div>
               <div className="text-2xl font-bold text-slate-100">{stat.value}</div>
               <div className="text-xs text-slate-400 mt-1">{stat.label}</div>
-            </div>
+            </Link>
           );
         })}
       </div>
@@ -119,7 +167,7 @@ export function DashboardPage() {
           <h2 className="text-lg font-semibold text-slate-100">Router Health Overview</h2>
           <Link to="/routers" className="text-sm text-noc-accent hover:text-blue-400">View all →</Link>
         </div>
-        <div className="overflow-x-auto">
+        <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-noc-border">
@@ -127,7 +175,7 @@ export function DashboardPage() {
                 <th className="px-5 py-3 font-medium">Location</th>
                 <th className="px-5 py-3 font-medium">IP</th>
                 <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium text-right">Clients</th>
+                <th className="px-5 py-3 font-medium text-right">Online Clients</th>
                 <th className="px-5 py-3 font-medium">Uptime</th>
                 <th className="px-5 py-3 font-medium">Last Seen</th>
               </tr>
@@ -151,16 +199,20 @@ export function DashboardPage() {
                       <span className={`status-dot ${
                         router.status === "online" ? "bg-green-500" :
                         router.status === "offline" ? "bg-red-500" :
-                        router.status === "degraded" ? "bg-amber-500" : "bg-slate-500"
+                        router.status === "degraded" || router.status === "stale" ? "bg-amber-500" : "bg-slate-500"
                       }`} />
                       {router.status.charAt(0).toUpperCase() + router.status.slice(1)}
                     </span>
                   </td>
                   <td className="px-5 py-3 text-right text-slate-400">
-                    {router.status === "offline" ? "—" : "—"}
+                    {router.status === "offline" || !clientCountsLoaded
+                      ? "—"
+                      : clientCounts[router.id] ?? 0}
                   </td>
                   <td className="px-5 py-3 text-slate-400">
-                    {router.status === "offline" ? "—" : "—"}
+                    {router.status === "offline" || router.uptimeSeconds == null
+                      ? "—"
+                      : formatUptime(router.uptimeSeconds)}
                   </td>
                   <td className="px-5 py-3 text-slate-400 text-xs">{timeAgo(router.lastSeenAt)}</td>
                 </tr>

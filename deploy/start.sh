@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Bradha Matu Console — Start Script
+# Bratha Matu Console — Start Script
 #
 # Starts: MariaDB, php-fpm, nginx, and cloudflared tunnel.
 # Safe to rerun — only starts services that are not running.
 #
 set -euo pipefail
 
-echo "Starting Bradha Matu Console services..."
+echo "Starting Bratha Matu Console services..."
 
 # MariaDB
 if ! systemctl is-active --quiet mariadb 2>/dev/null; then

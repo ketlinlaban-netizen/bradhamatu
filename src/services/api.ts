@@ -16,6 +16,8 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 
 const TOKEN_KEY = "bradha-matu-token";
+const GET_CACHE_TTL_MS = 10_000;
+const getCache = new Map<string, { expiresAt: number; value: unknown }>();
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -27,6 +29,7 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+  getCache.clear();
 }
 
 async function request<T>(
@@ -77,16 +80,37 @@ async function request<T>(
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  return request<T>(path, { method: "GET" });
+  if (path.startsWith("/auth/") || path.endsWith("/refresh")) {
+    return request<T>(path, { method: "GET" });
+  }
+
+  const cached = getCache.get(path);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value as T;
+  }
+
+  const value = await request<T>(path, { method: "GET" });
+  getCache.set(path, { value, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+  return value;
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  getCache.clear();
   return request<T>(path, {
     method: "POST",
     body: body ? JSON.stringify(body) : undefined,
   });
 }
 
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  getCache.clear();
+  return request<T>(path, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 export async function apiDelete<T>(path: string): Promise<T> {
+  getCache.clear();
   return request<T>(path, { method: "DELETE" });
 }

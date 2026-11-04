@@ -17,12 +17,11 @@ import { apiGet } from "./api";
  * LaravelApiProvider
  *
  * Talks to the real Laravel backend, which in turn talks to MikroTik
- * routers via the binary API (or REST API fallback). No mock data —
+ * routers via the native binary API. No mock data —
  * every call is a live HTTP GET to the Laravel API.
  *
  * The Laravel backend handles:
  *   - MikroTik binary API protocol (TCP 8728/8729)
- *   - REST API fallback (HTTPS /rest/)
  *   - Read-only enforcement (RouterReadOnlyGuard on the server)
  *   - Sanctum token authentication
  *
@@ -64,6 +63,14 @@ export class LaravelApiProvider implements RouterProvider {
     } catch {
       return [];
     }
+  }
+
+  async getAllClients(): Promise<RouterClient[]> {
+    return apiGet<RouterClient[]>("/clients");
+  }
+
+  async refreshAllClients(): Promise<RouterClient[]> {
+    return apiGet<RouterClient[]>("/clients/refresh");
   }
 
   async getTraffic(routerId: string): Promise<RouterTraffic | null> {

@@ -4,7 +4,7 @@ import { WifiOff, Clock, Users, Cpu, ArrowDownToLine, ArrowUpFromLine } from "lu
 import { routerService } from "../services/RouterService";
 import type { Router, RouterStatusInfo, RouterTraffic } from "../types";
 import { formatUptime, timeAgo, formatBytes } from "../utils/format";
-import { LoadingSpinner, EmptyState } from "../components/ui";
+import { EmptyState } from "../components/ui";
 
 interface OfflineRouterData {
   router: Router;
@@ -18,28 +18,33 @@ export function OfflineRoutersPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    routerService.getRouters().then(async (routers) => {
+    routerService.getRouters().then((routers) => {
       const offline = routers.filter((r) => r.status === "offline");
-      const enriched: OfflineRouterData[] = [];
-      for (const router of offline) {
+      setData(offline.map((router) => ({
+        router,
+        lastStatus: null,
+        lastClients: 0,
+        lastTraffic: null,
+      })));
+      setLoading(false);
+      void Promise.all(offline.map(async (router) => {
         const [status, clients, traffic] = await Promise.all([
           routerService.getStatus(router.id),
           routerService.getClients(router.id),
           routerService.getTraffic(router.id),
         ]);
-        enriched.push({
+        return {
           router,
           lastStatus: status,
           lastClients: clients.length,
           lastTraffic: traffic,
-        });
-      }
-      setData(enriched);
+        };
+      })).then(setData);
+    }).catch(() => {
+      setData([]);
       setLoading(false);
     });
   }, []);
-
-  if (loading) return <LoadingSpinner label="Loading offline routers..." />;
 
   return (
     <div className="space-y-6">
@@ -48,11 +53,12 @@ export function OfflineRoutersPage() {
         <p className="text-sm text-slate-400 mt-1">
           {data.length} {data.length === 1 ? "router" : "routers"} offline — showing last known information.
         </p>
+        {loading && <p className="mt-1 text-xs text-slate-500">Loading saved router inventory…</p>}
       </div>
 
       {data.length === 0 ? (
         <div className="card">
-          <EmptyState message="All routers are online. No offline routers to display." />
+          <EmptyState message={loading ? "Loading offline router data…" : "All routers are online. No offline routers to display."} />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -90,22 +96,22 @@ export function OfflineRoutersPage() {
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-slate-500" />
                   <span className="text-slate-400">Uptime:</span>
-                  <span className="text-slate-200 font-medium">{lastStatus ? formatUptime(lastStatus.uptimeSeconds) : "—"}</span>
+                  <span className="text-slate-200 font-medium">{lastStatus?.uptimeSeconds == null ? "—" : formatUptime(lastStatus.uptimeSeconds)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-slate-500" />
                   <span className="text-slate-400">CPU:</span>
-                  <span className="text-slate-200 font-medium">{lastStatus?.cpuUsage ?? 0}%</span>
+                  <span className="text-slate-200 font-medium">{lastStatus?.cpuUsage ?? "—"}{lastStatus?.cpuUsage == null ? "" : "%"}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <ArrowDownToLine className="w-4 h-4 text-slate-500" />
                   <span className="text-slate-400">RX:</span>
-                  <span className="text-slate-200 font-medium">{lastTraffic ? `${lastTraffic.currentRxMbps} Mbps` : "—"}</span>
+                  <span className="text-slate-200 font-medium">{lastTraffic?.currentRxMbps == null ? "—" : `${lastTraffic.currentRxMbps} Mbps`}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <ArrowUpFromLine className="w-4 h-4 text-slate-500" />
                   <span className="text-slate-400">TX:</span>
-                  <span className="text-slate-200 font-medium">{lastTraffic ? `${lastTraffic.currentTxMbps} Mbps` : "—"}</span>
+                  <span className="text-slate-200 font-medium">{lastTraffic?.currentTxMbps == null ? "—" : `${lastTraffic.currentTxMbps} Mbps`}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <WifiOff className="w-4 h-4 text-slate-500" />

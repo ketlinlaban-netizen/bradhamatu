@@ -63,6 +63,14 @@ export class RouterService {
     return this.guarded("getClients", () => this.provider.getClients(routerId));
   }
 
+  getAllClients(): Promise<RouterClient[]> {
+    return this.guarded("getAllClients", () => this.provider.getAllClients());
+  }
+
+  refreshAllClients(): Promise<RouterClient[]> {
+    return this.guarded("refreshAllClients", () => this.provider.refreshAllClients());
+  }
+
   getTraffic(routerId: string): Promise<RouterTraffic | null> {
     return this.guarded("getTraffic", () => this.provider.getTraffic(routerId));
   }
@@ -93,7 +101,7 @@ export class RouterService {
 }
 
 // ── singleton instance ──────────────────────────────────────────────
-// Wired to the real Laravel backend — no mock data.
+// Wired to the Laravel backend; provider mode is configured server-side.
 import { LaravelApiProvider } from "./LaravelApiProvider";
 
 export const routerService = new RouterService(new LaravelApiProvider());

@@ -6,7 +6,20 @@
   color-scheme: dark;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+html {
+  min-height: 100%;
+  scroll-padding-top: 5rem;
+}
+
 * {
+  box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: #1e293b transparent;
 }
@@ -31,14 +44,32 @@ body {
   color: #e2e8f0;
   font-family: "Inter", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
 }
 
 @layer components {
   .card {
     @apply bg-noc-card border border-noc-border rounded-xl;
+    min-width: 0;
+    max-width: 100%;
   }
   .stat-card {
     @apply bg-noc-card border border-noc-border rounded-xl p-5 transition-all hover:border-noc-accent/40 hover:bg-noc-hover;
+    min-width: 0;
+    max-width: 100%;
   }
   .btn-primary {
     @apply bg-noc-accent hover:bg-blue-500 text-white font-medium px-4 py-2 rounded-lg transition-colors;
@@ -56,6 +87,16 @@ body {
   .table-row-hover {
     @apply transition-colors hover:bg-noc-hover cursor-pointer;
   }
+  .table-scroll {
+    @apply w-full min-w-0 max-w-full overflow-x-auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tab-scroll {
+    @apply w-full min-w-0 max-w-full overflow-x-auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
   .status-dot {
     @apply inline-block w-2.5 h-2.5 rounded-full;
   }
@@ -68,5 +109,32 @@ body {
   }
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+@media (max-width: 640px) {
+  html {
+    scroll-padding-top: 4rem;
+  }
+
+  .stat-card {
+    padding: 0.875rem;
+  }
+
+  .card.p-5,
+  .card.p-6 {
+    padding: 1rem;
+  }
+
+  .input-field,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .table-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #475569 #0f172a;
   }
 }

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Gate::define('manage-router-inventory', fn (User $user): bool => $user->role === 'super_admin');
+        Gate::define('manage-device-aliases', fn (User $user): bool => in_array($user->role, ['super_admin', 'admin'], true));
     }
 }

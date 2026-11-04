@@ -1,18 +1,19 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpDown, Search } from "lucide-react";
 import { routerService } from "../services/RouterService";
-import type { Router, RouterStatus } from "../types";
-import { timeAgo, statusBadge } from "../utils/format";
-import { LoadingSpinner, EmptyState } from "../components/ui";
+import type { Router, RouterClient, RouterStatus } from "../types";
+import { formatUptime, timeAgo, statusBadge } from "../utils/format";
+import { EmptyState } from "../components/ui";
 
-type SortKey = "name" | "status" | "clients" | "uptime" | "lastSeen" | "traffic";
+type SortKey = "name" | "status" | "clients" | "uptime" | "lastSeen";
 
 const STATUS_FILTERS: Array<{ key: RouterStatus | "all"; label: string }> = [
   { key: "all", label: "All" },
   { key: "online", label: "Online" },
   { key: "offline", label: "Offline" },
   { key: "degraded", label: "Degraded" },
+  { key: "stale", label: "Stale" },
   { key: "unknown", label: "Unknown" },
 ];
 
@@ -21,29 +22,49 @@ export function RoutersPage() {
   const [routers, setRouters] = useState<Router[]>([]);
   const [clientCounts, setClientCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [clientCountsLoaded, setClientCountsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortAsc, setSortAsc] = useState(true);
 
   const statusFilter = (searchParams.get("status") as RouterStatus | "all") || "all";
 
-  useEffect(() => {
+  const loadInventory = useCallback(async () => {
     setLoading(true);
-    routerService.getRouters().then(async (all) => {
-      setRouters(all);
-      const counts: Record<string, number> = {};
-      for (const r of all) {
-        if (r.status !== "offline") {
-          const clients = await routerService.getClients(r.id);
-          counts[r.id] = clients.length;
-        } else {
-          counts[r.id] = 0;
+    setLoadError(null);
+    setClientCountsLoaded(false);
+    const [routerResult, clientsResult] = await Promise.allSettled([
+      routerService.getRouters(),
+      routerService.getAllClients(),
+    ]);
+
+    const failures: string[] = [];
+    if (routerResult.status === "fulfilled") {
+      setRouters(routerResult.value);
+    } else {
+      failures.push("Router inventory is unavailable.");
+    }
+
+    if (clientsResult.status === "fulfilled") {
+      setClientCounts(clientsResult.value.reduce<Record<string, number>>((counts, client: RouterClient) => {
+        if ((client.status ?? "unknown") === "online" && !client.monitoringStale) {
+          counts[client.routerId] = (counts[client.routerId] ?? 0) + 1;
         }
-      }
-      setClientCounts(counts);
-      setLoading(false);
-    });
+        return counts;
+      }, {}));
+      setClientCountsLoaded(true);
+    } else {
+      failures.push("Client counts are unavailable.");
+    }
+
+    setLoadError(failures.length > 0 ? failures.join(" ") : null);
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    void loadInventory();
+  }, [loadInventory]);
 
   const filtered = useMemo(() => {
     let result = routers;
@@ -71,8 +92,7 @@ export function RoutersPage() {
         case "status": cmp = a.status.localeCompare(b.status); break;
         case "clients": cmp = (clientCounts[a.id] ?? 0) - (clientCounts[b.id] ?? 0); break;
         case "lastSeen": cmp = new Date(a.lastSeenAt).getTime() - new Date(b.lastSeenAt).getTime(); break;
-        case "uptime": cmp = a.status === "offline" ? -1 : 0; break;
-        case "traffic": cmp = 0; break;
+        case "uptime": cmp = (a.uptimeSeconds ?? -1) - (b.uptimeSeconds ?? -1); break;
       }
       return sortAsc ? cmp : -cmp;
     });
@@ -81,11 +101,14 @@ export function RoutersPage() {
 
   const setStatusFilter = (status: RouterStatus | "all") => {
     if (status === "all") {
-      searchParams.delete("status");
+      const next = new URLSearchParams(searchParams);
+      next.delete("status");
+      setSearchParams(next);
     } else {
-      searchParams.set("status", status);
+      const next = new URLSearchParams(searchParams);
+      next.set("status", status);
+      setSearchParams(next);
     }
-    setSearchParams(searchParams);
   };
 
   const toggleSort = (key: SortKey) => {
@@ -97,18 +120,26 @@ export function RoutersPage() {
     }
   };
 
-  if (loading) return <LoadingSpinner label="Loading router inventory..." />;
-
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Routers</h1>
         <p className="text-sm text-slate-400 mt-1">{filtered.length} of {routers.length} routers</p>
+        {loading && <p className="mt-1 text-xs text-slate-500">Loading router inventory…</p>}
       </div>
+
+      {loadError && (
+        <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          {loadError}
+          <button type="button" onClick={() => void loadInventory()} className="ml-2 underline hover:text-white">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1.5">
+        <div className="flex max-w-full flex-wrap gap-1.5">
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.key}
@@ -138,11 +169,11 @@ export function RoutersPage() {
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="card">
-          <EmptyState message="No routers match the current filters." />
+          <EmptyState message={loading ? "Loading routers…" : "No routers match the current filters."} />
         </div>
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="table-scroll">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-noc-border">
@@ -156,6 +187,9 @@ export function RoutersPage() {
                   </th>
                   <th className="px-5 py-3 font-medium text-right cursor-pointer hover:text-slate-300" onClick={() => toggleSort("clients")}>
                     <span className="flex items-center gap-1 justify-end">Clients <ArrowUpDown className="w-3 h-3" /></span>
+                  </th>
+                  <th className="px-5 py-3 font-medium cursor-pointer hover:text-slate-300" onClick={() => toggleSort("uptime")}>
+                    <span className="flex items-center gap-1">Uptime <ArrowUpDown className="w-3 h-3" /></span>
                   </th>
                   <th className="px-5 py-3 font-medium cursor-pointer hover:text-slate-300" onClick={() => toggleSort("lastSeen")}>
                     <span className="flex items-center gap-1">Last Seen <ArrowUpDown className="w-3 h-3" /></span>
@@ -178,13 +212,18 @@ export function RoutersPage() {
                         <span className={`status-dot ${
                           router.status === "online" ? "bg-green-500" :
                           router.status === "offline" ? "bg-red-500" :
-                          router.status === "degraded" ? "bg-amber-500" : "bg-slate-500"
+                          router.status === "degraded" || router.status === "stale" ? "bg-amber-500" : "bg-slate-500"
                         }`} />
                         {router.status.charAt(0).toUpperCase() + router.status.slice(1)}
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right text-slate-400">
-                      {router.status === "offline" ? "—" : (clientCounts[router.id] ?? "—")}
+                      {router.status === "offline" || !clientCountsLoaded
+                        ? "—"
+                        : clientCounts[router.id] ?? 0}
+                    </td>
+                    <td className="px-5 py-3 text-slate-400 text-xs">
+                      {router.uptimeSeconds == null ? "—" : formatUptime(router.uptimeSeconds)}
                     </td>
                     <td className="px-5 py-3 text-slate-400 text-xs">{timeAgo(router.lastSeenAt)}</td>
                   </tr>

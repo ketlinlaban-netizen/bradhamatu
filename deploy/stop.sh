@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Bradha Matu Console — Stop Script
+# Bratha Matu Console — Stop Script
 #
 # Stops: cloudflared, nginx, php-fpm. Leaves MariaDB running
 # (other applications may depend on it).
 #
 set -euo pipefail
 
-echo "Stopping Bradha Matu Console services..."
+echo "Stopping Bratha Matu Console services..."
 
 # cloudflared
 if systemctl is-active --quiet cloudflared 2>/dev/null; then

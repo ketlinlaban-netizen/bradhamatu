@@ -11,6 +11,12 @@ export function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+export function formatSignal(signal: number | null | undefined): string {
+  return signal == null || !Number.isFinite(signal) || signal === 0
+    ? "—"
+    : `${signal} dBm`;
+}
+
 export function formatUptime(seconds: number): string {
   if (seconds === 0) return "—";
   const d = Math.floor(seconds / 86400);
@@ -53,6 +59,13 @@ export const STATUS_CONFIG: Record<RouterStatus, { label: string; color: string;
     color: "#f59e0b",
     dotClass: "bg-amber-500",
     textClass: "text-amber-400",
+    bgClass: "bg-amber-500/10 border-amber-500/20",
+  },
+  stale: {
+    label: "Stale",
+    color: "#f59e0b",
+    dotClass: "bg-amber-500",
+    textClass: "text-amber-300",
     bgClass: "bg-amber-500/10 border-amber-500/20",
   },
   unknown: {

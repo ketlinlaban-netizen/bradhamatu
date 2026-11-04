@@ -67,7 +67,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
           <div>
             <div className="text-sm font-bold text-slate-100 leading-tight">COMMUNITY WIFI</div>
-            <div className="text-xs text-slate-400 leading-tight">BRADHA MATU</div>
+            <div className="text-xs text-slate-400 leading-tight">BRATHA MATU</div>
           </div>
         </div>
         <div className="mt-3 text-[10px] font-mono text-slate-500 uppercase tracking-wider">
@@ -76,7 +76,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
+      <nav aria-label="Primary navigation" className="min-h-0 flex-1 overflow-y-auto py-4 px-3">
         {navSections.map((section, sIdx) => (
           <div key={sIdx} className="mb-4">
             {section.label && (
@@ -94,7 +94,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   to={item.to}
                   end={item.end}
                   onClick={onNavigate}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors mb-0.5 ${
+                  className={`flex min-h-11 items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors mb-0.5 ${
                     isActive
                       ? "bg-noc-accent/10 text-noc-accent font-medium"
                       : "text-slate-400 hover:text-slate-100 hover:bg-noc-hover"
@@ -137,7 +137,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-red-400 transition-colors"
+            className="flex min-h-11 items-center gap-1.5 rounded px-2 text-xs text-slate-400 hover:text-red-400 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             Logout

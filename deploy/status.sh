@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bradha Matu Console — Service Status Check
+# Bratha Matu Console — Service Status Check
 #
 set -euo pipefail
 
@@ -30,7 +30,7 @@ check_url() {
 
 echo ""
 echo "═══════════════════════════════════════════════"
-echo "  Bradha Matu Console — Service Status"
+echo "  Bratha Matu Console — Service Status"
 echo "═══════════════════════════════════════════════"
 echo ""
 

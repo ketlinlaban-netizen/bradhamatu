@@ -1,58 +1,131 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Bratha Matu Laravel API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 13 backend for the Bratha Matu NOC dashboard. `ROUTER_PROVIDER` is
+selected only in server configuration and selects the default transport for
+new router configurations:
 
-## About Laravel
+- `mikrotik` uses the existing native RouterOS Binary API client (local
+  development default).
+- `rest` uses HTTPS RouterOS REST when the cPanel host has an approved private
+  route to the router.
+- `mock` previews explicitly fictional demo data and never contacts a router.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+Both live transports implement the same `RouterProvider` application contract.
+Existing routers select Binary API/API-SSL or HTTPS REST independently in
+their saved configuration.
+See the repository's
+[transport and connectivity guide](../docs/MIKROTIK_PRODUCTION_CONNECTIVITY.md).
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Local setup
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp -n .env.example .env
+touch database/database.sqlite
+php artisan key:generate
+php artisan migrate
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Set `SUPERADMIN_EMAIL` and a strong `SUPERADMIN_PASSWORD` in `.env`, then run
+`php artisan db:seed`. The seeder creates or updates that super-admin account;
+never use demo or shared credentials outside a local test environment.
 
-## Contributing
+Start Laravel with `php artisan serve`. From the repository root, start the
+frontend with `npm run dev`. Configure the frontend API base URL using the
+existing Vite environment settings for your local setup.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Register a MikroTik router
 
-## Code of Conduct
+Create the router using the super-admin inventory UI/API. Its host must be an
+RFC1918 private IPv4 address; hostnames must be explicitly listed in
+`MIKROTIK_ALLOWED_HOSTS` and resolve only to private IPv4 addresses. When that
+list is configured, it also restricts private IP literals to listed values.
+Only ports 8728 and 8729 are allowed by default.
+Credentials are encrypted using `APP_KEY`, masked in responses, and must be
+backed up securely along with the key. Rotating `APP_KEY` requires a planned
+credential re-encryption before the old key is discarded.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+For Binary API, enable only the required API/API-SSL service and restrict it
+to the Laravel host address. For REST, enable HTTPS `www-ssl` with a trusted
+hostname-matching certificate. RouterOS documents the REST user group
+policies as `read,api,rest-api`; create a dedicated group rather than relying
+on the default `read` group, which includes additional permissions. Restrict
+the user/service to the trusted source address. Certificate verification
+cannot be disabled by the application.
 
-## Security Vulnerabilities
+Relevant server settings:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```dotenv
+ROUTER_PROVIDER=mikrotik
+MIKROTIK_CONNECT_TIMEOUT=3
+MIKROTIK_QUERY_TIMEOUT=3
+MIKROTIK_ALLOWED_PORTS=8728,8729
+MIKROTIK_ALLOWED_HOSTS=
+# MIKROTIK_TLS_CA_FILE=/path/to/ca-bundle.pem
+```
 
-## License
+For production REST, select `ROUTER_PROVIDER=rest` as the new-router default
+and configure `MIKROTIK_REST_PORT=443` with
+`MIKROTIK_REST_ALLOWED_PORTS=443`. The REST port is server-selected, not
+browser-controlled. REST validates TLS, disables
+redirects, pins the destination and bounds request/response sizes.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+RouterOS operations are limited to the shared application allowlist of
+read-only commands. REST supports only fixed GET reads and one bounded
+one-shot traffic monitor POST; no write verb or arbitrary command is exposed.
+Router inventory create/delete operations modify Laravel records only and are
+restricted to `super_admin`.
+
+## Scheduled status and metrics
+
+Laravel schedules `routers:collect` every minute. It reads router status and
+traffic, stores metric samples for 30 days, and updates online/offline state.
+Run `php artisan schedule:run` from the private backend directory every minute
+using the host's scheduler (for cPanel, configure one Cron Jobs entry). The
+browser migration does not create or verify the cron job. Live polling failure
+returns the last saved metric and route observations with an explicit stale
+marker; it does not fabricate online status or zeros for unavailable metrics.
+
+## Client inventory
+
+The authenticated `GET /api/clients` endpoint returns the saved inventory
+without waiting for a router connection. `GET /api/clients/refresh` polls
+enabled routers, updates the inventory by router and MAC address, and marks
+clients missing from a successful snapshot offline. A failed router poll leaves
+saved state intact, keeps each client's last confirmed online/offline status,
+and flags monitoring data as stale until the router can be reached again. The
+dashboard refreshes this snapshot when the
+Clients page opens, when an administrator requests a refresh, and every minute
+while that page remains open.
+
+Wireless client presence is based on the active wireless registration table,
+not merely on a still-bound DHCP lease. A DHCP lease cannot override a
+previously observed wireless client's offline state. Client records retain
+first-seen and last-seen timestamps and the reason the client was marked
+offline. In an incomplete wireless snapshot, clients positively observed in
+the report are refreshed online; clients absent from that partial report keep
+their last confirmed status and are flagged stale. Only a complete snapshot
+can mark a missing, previously online client offline.
+
+## Validation
+
+```bash
+php artisan test
+./vendor/bin/pint --test
+npm run build
+```
+
+Tests use a local in-memory database and do not contact a physical router.
+Successful live connectivity must be verified against a router with the
+required API service, network access, read-only credentials, and trusted TLS
+certificate (when API-SSL is enabled).
+
+For cPanel preparation, see the repository-root
+[`CPANEL_DEPLOYMENT_GUIDE.md`](../docs/CPANEL_DEPLOYMENT_GUIDE.md),
+[`PRODUCTION_ENVIRONMENT_REFERENCE.md`](../docs/PRODUCTION_ENVIRONMENT_REFERENCE.md),
+and [`MIKROTIK_PRODUCTION_CONNECTIVITY.md`](../docs/MIKROTIK_PRODUCTION_CONNECTIVITY.md).
+These documents do not perform a production deployment.
+
+The credential encryption migration is intentionally irreversible: restoring
+plaintext credentials via rollback would be unsafe. Restore a protected database
+backup and key if a full rollback is required.

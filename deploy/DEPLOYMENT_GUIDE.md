@@ -1,4 +1,4 @@
-# Community WiFi Bradha Matu — Complete Deployment Guide
+# Community WiFi Bratha Matu — Complete Deployment Guide
 
 **Run the NOC console locally on Kali Linux, expose it via Cloudflare Tunnel, and monitor real MikroTik routers — without deploying to cPanel.**
 

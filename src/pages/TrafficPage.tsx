@@ -5,25 +5,100 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { routerService } from "../services/RouterService";
 import type { Router, RouterTraffic } from "../types";
 import { formatBytes } from "../utils/format";
-import { LoadingSpinner } from "../components/ui";
+
+const TRAFFIC_REFRESH_INTERVAL_MS = 10_000;
 
 export function TrafficPage() {
   const [routers, setRouters] = useState<Router[]>([]);
   const [trafficMap, setTrafficMap] = useState<Record<string, RouterTraffic>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    routerService.getRouters().then(async (all) => {
-      setRouters(all);
-      const map: Record<string, RouterTraffic> = {};
-      for (const r of all) {
-        const t = await routerService.getTraffic(r.id);
-        if (t) map[r.id] = t;
+    let cancelled = false;
+    let inFlight = false;
+
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+
+      try {
+        const all = await routerService.getRouters();
+        if (cancelled) return;
+
+        setRouters(all);
+        setLoading(false);
+
+        const online = all.filter((router) => router.status !== "offline");
+        const results = await Promise.all(online.map(async (router) => ({
+          routerId: router.id,
+          traffic: await routerService.getTraffic(router.id),
+        })));
+        if (cancelled) return;
+
+        const successful = results.filter(
+          (result): result is { routerId: string; traffic: RouterTraffic } => result.traffic !== null,
+        );
+        const failedIds = new Set(results.filter((result) => result.traffic === null).map((result) => result.routerId));
+        const updatedAt = new Date();
+
+        setTrafficMap((previous) => {
+          const onlineIds = new Set(online.map((router) => router.id));
+          const next = Object.fromEntries(Object.entries(previous).filter(([routerId]) => onlineIds.has(routerId)));
+
+          for (const { routerId, traffic } of successful) {
+            const history = previous[routerId]?.history ?? [];
+            const nextHistory = traffic.currentRxMbps === null || traffic.currentTxMbps === null
+              ? history
+              : [...history, {
+                time: updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+                rxMbps: traffic.currentRxMbps,
+                txMbps: traffic.currentTxMbps,
+              }].slice(-60);
+            next[routerId] = {
+              ...traffic,
+              stale: false,
+              history: nextHistory,
+            };
+          }
+
+          for (const routerId of failedIds) {
+            if (next[routerId]) next[routerId] = { ...next[routerId], stale: true };
+          }
+
+          return next;
+        });
+
+        if (successful.length > 0) setLastUpdated(updatedAt);
+        setRefreshError(
+          failedIds.size > 0
+            ? `Live traffic could not be refreshed for ${failedIds.size} online router${failedIds.size === 1 ? "" : "s"}. Showing the last successful sample where available.`
+            : online.length > 0 && successful.length === 0
+              ? "Live traffic is unavailable from the online routers."
+              : null,
+        );
+      } catch {
+        if (!cancelled) {
+          setLoading(false);
+          setRefreshError("Router status could not be refreshed. Traffic may be stale.");
+          setTrafficMap((previous) => Object.fromEntries(
+            Object.entries(previous).map(([routerId, traffic]) => [routerId, { ...traffic, stale: true }]),
+          ));
+        }
+      } finally {
+        inFlight = false;
       }
-      setTrafficMap(map);
-      setLoading(false);
-    });
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), TRAFFIC_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   const onlineRouters = useMemo(() => {
@@ -35,33 +110,41 @@ export function TrafficPage() {
     return result;
   }, [routers, search]);
 
-  if (loading) return <LoadingSpinner label="Loading traffic data..." />;
-
   const totalRx = Object.values(trafficMap).reduce((sum, t) => sum + t.totalRxBytes, 0);
   const totalTx = Object.values(trafficMap).reduce((sum, t) => sum + t.totalTxBytes, 0);
-  const currentRx = Object.values(trafficMap).reduce((sum, t) => sum + t.currentRxMbps, 0);
-  const currentTx = Object.values(trafficMap).reduce((sum, t) => sum + t.currentTxMbps, 0);
+  const rxRates = Object.values(trafficMap).flatMap((traffic) => traffic.currentRxMbps === null ? [] : [traffic.currentRxMbps]);
+  const txRates = Object.values(trafficMap).flatMap((traffic) => traffic.currentTxMbps === null ? [] : [traffic.currentTxMbps]);
+  const currentRx = rxRates.reduce((sum, rate) => sum + rate, 0);
+  const currentTx = txRates.reduce((sum, rate) => sum + rate, 0);
+  const hasTrafficData = Object.keys(trafficMap).length > 0;
+  const hasStaleTraffic = Object.values(trafficMap).some((traffic) => traffic.stale);
 
-  // Aggregate traffic history
-  const aggregateHistory = onlineRouters.length > 0 && trafficMap[onlineRouters[0]?.id]
-    ? trafficMap[onlineRouters[0].id].history.map((point, i) => {
-        let rx = 0, tx = 0;
-        for (const r of onlineRouters) {
-          const t = trafficMap[r.id];
-          if (t && t.history[i]) {
-            rx += t.history[i].rxMbps;
-            tx += t.history[i].txMbps;
-          }
-        }
-        return { time: point.time, rxMbps: rx, txMbps: tx };
-      })
-    : [];
+  const historyByTime = new Map<string, { time: string; rxMbps: number; txMbps: number }>();
+  for (const traffic of Object.values(trafficMap)) {
+    for (const point of traffic.history) {
+      const aggregate = historyByTime.get(point.time) ?? { time: point.time, rxMbps: 0, txMbps: 0 };
+      aggregate.rxMbps += point.rxMbps;
+      aggregate.txMbps += point.txMbps;
+      historyByTime.set(point.time, aggregate);
+    }
+  }
+  const aggregateHistory = [...historyByTime.values()];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Traffic Monitoring</h1>
         <p className="text-sm text-slate-400 mt-1">Network-wide traffic overview across all online routers.</p>
+        {loading && <p className="mt-1 text-xs text-slate-500">Loading saved router inventory…</p>}
+        {!loading && (
+          <p role="status" className={`mt-1 text-xs ${refreshError || hasStaleTraffic ? "text-amber-400" : "text-slate-500"}`}>
+            {refreshError
+              ? refreshError
+              : lastUpdated
+                ? `${hasStaleTraffic ? "Stale / partial" : "Live"} · Last successful sample ${lastUpdated.toLocaleTimeString()} · refreshes every 10 seconds`
+                : "Waiting for the first live traffic sample…"}
+          </p>
+        )}
       </div>
 
       {/* Summary */}
@@ -71,28 +154,28 @@ export function TrafficPage() {
             <ArrowDownToLine className="w-4 h-4 text-green-400" />
             <span className="text-xs text-slate-400">Total RX</span>
           </div>
-          <div className="text-xl font-bold text-slate-100">{formatBytes(totalRx)}</div>
+          <div className="text-xl font-bold text-slate-100">{hasTrafficData ? formatBytes(totalRx) : "—"}</div>
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-2 mb-2">
             <ArrowUpFromLine className="w-4 h-4 text-cyan-400" />
             <span className="text-xs text-slate-400">Total TX</span>
           </div>
-          <div className="text-xl font-bold text-slate-100">{formatBytes(totalTx)}</div>
+          <div className="text-xl font-bold text-slate-100">{hasTrafficData ? formatBytes(totalTx) : "—"}</div>
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-2 mb-2">
             <ArrowDownToLine className="w-4 h-4 text-green-400" />
             <span className="text-xs text-slate-400">Current RX</span>
           </div>
-          <div className="text-xl font-bold text-slate-100">{currentRx} <span className="text-sm text-slate-400">Mbps</span></div>
+          <div className="text-xl font-bold text-slate-100">{rxRates.length > 0 ? currentRx.toFixed(2) : "Waiting for next report"} {rxRates.length > 0 && <span className="text-sm text-slate-400">Mbps</span>}</div>
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-2 mb-2">
             <ArrowUpFromLine className="w-4 h-4 text-cyan-400" />
             <span className="text-xs text-slate-400">Current TX</span>
           </div>
-          <div className="text-xl font-bold text-slate-100">{currentTx} <span className="text-sm text-slate-400">Mbps</span></div>
+          <div className="text-xl font-bold text-slate-100">{txRates.length > 0 ? currentTx.toFixed(2) : "Waiting for next report"} {txRates.length > 0 && <span className="text-sm text-slate-400">Mbps</span>}</div>
         </div>
       </div>
 
@@ -135,7 +218,7 @@ export function TrafficPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-noc-border">
@@ -150,17 +233,18 @@ export function TrafficPage() {
             <tbody>
               {onlineRouters.map((router) => {
                 const t = trafficMap[router.id];
-                if (!t) return null;
                 return (
                   <tr key={router.id} className="border-b border-noc-border/50 last:border-0 hover:bg-noc-hover/50">
                     <td className="px-5 py-3">
                       <Link to={`/routers/${router.id}`} className="font-medium text-slate-100 hover:text-noc-accent">{router.name}</Link>
+                      {t?.stale && <span className="ml-2 text-[10px] uppercase text-amber-400">Stale</span>}
+                      {!t && <span className="ml-2 text-[10px] text-slate-500">No live sample</span>}
                     </td>
                     <td className="px-5 py-3 text-slate-400">{router.location}</td>
-                    <td className="px-5 py-3 text-right text-green-400 font-mono text-xs">{t.currentRxMbps} Mbps</td>
-                    <td className="px-5 py-3 text-right text-cyan-400 font-mono text-xs">{t.currentTxMbps} Mbps</td>
-                    <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{formatBytes(t.totalRxBytes)}</td>
-                    <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{formatBytes(t.totalTxBytes)}</td>
+                    <td className="px-5 py-3 text-right text-green-400 font-mono text-xs">{t?.currentRxMbps == null ? "Waiting…" : `${t.currentRxMbps} Mbps`}</td>
+                    <td className="px-5 py-3 text-right text-cyan-400 font-mono text-xs">{t?.currentTxMbps == null ? "Waiting…" : `${t.currentTxMbps} Mbps`}</td>
+                    <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{t ? formatBytes(t.totalRxBytes) : "—"}</td>
+                    <td className="px-5 py-3 text-right text-slate-400 font-mono text-xs">{t ? formatBytes(t.totalTxBytes) : "—"}</td>
                   </tr>
                 );
               })}

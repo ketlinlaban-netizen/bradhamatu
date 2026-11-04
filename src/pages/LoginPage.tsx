@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Wifi, Lock, Mail, ShieldCheck, AlertCircle } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { PwaNotices } from "../components/PwaExperience";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -44,10 +45,14 @@ export function LoginPage() {
             <Wifi className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-100">Community WiFi</h1>
-          <p className="text-sm text-slate-400">Bradha Matu</p>
+          <p className="text-sm text-slate-400">Bratha Matu</p>
           <p className="mt-2 sm:mt-3 text-[10px] sm:text-xs font-mono uppercase tracking-widest text-slate-500">
             Network Operations Console
           </p>
+        </div>
+
+        <div className="mb-3">
+          <PwaNotices />
         </div>
 
         <div className="card p-5 sm:p-8">
@@ -60,7 +65,8 @@ export function LoginPage() {
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 flex-shrink-0" />
                 <input
-                  type="text"
+                  type="email"
+                  inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="input-field pl-10 text-sm"

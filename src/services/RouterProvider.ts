@@ -27,6 +27,8 @@ export interface RouterProvider {
   getStatus(routerId: string): Promise<RouterStatusInfo | null>;
   getInterfaces(routerId: string): Promise<RouterInterface[]>;
   getClients(routerId: string): Promise<RouterClient[]>;
+  getAllClients(): Promise<RouterClient[]>;
+  refreshAllClients(): Promise<RouterClient[]>;
   getTraffic(routerId: string): Promise<RouterTraffic | null>;
   getWireless(routerId: string): Promise<WirelessInfo | null>;
   getMetrics(routerId: string): Promise<RouterMetric[]>;
